@@ -17,8 +17,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.stream.Stream;
 
-@Command(name = "serve", description = "Serves an ORB")
-public class ServeCommand implements Runnable {
+@Command(name = "index", description = "Indexes a repository in ORB")
+public class IndexCommand implements Runnable {
 
     @Parameters(paramLabel = "REPO_NAME",description = "Name of the repository to index")
     private String repoName;
@@ -31,7 +31,7 @@ public class ServeCommand implements Runnable {
         Path repoPath = Paths.get(orbPath, repoName);
         if(Files.notExists(repoPath)){
             System.err.println("Error: Repository not found in " + orbPath);
-            System.err.println("Hint: Make sure to add the repository using 'orb add <REPO_LINK>' before serving.");
+            System.err.println("Hint: Make sure to add the repository using 'orb add <REPO_LINK>' before indexing.");
             return;
         }
         else{
