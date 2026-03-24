@@ -1,7 +1,7 @@
 package org.orb.cli;
 
 import org.orb.cli.commands.AddCommand;
-import org.orb.cli.commands.ServeCommand;
+import org.orb.cli.commands.IndexCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
@@ -9,7 +9,7 @@ import picocli.CommandLine.Command;
         name = "orb",
         description = "ORB Cli - Code Intelligence Platform",
         mixinStandardHelpOptions = true,
-        subcommands = {AddCommand.class, ServeCommand.class}
+        subcommands = {AddCommand.class, IndexCommand.class}
 )
 public class OrbCLI {
     public static void main(String[] args) {
