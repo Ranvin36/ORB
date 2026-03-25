@@ -1,17 +1,21 @@
 package org.orb.server.services;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import org.orb.server.models.GraphInMemory;
 import org.springframework.stereotype.Service;
+import org.treesitter.TSException;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
 import org.treesitter.TSTree;
@@ -67,16 +71,41 @@ public class IndexEngineService {
     }
 
     /**
-     * Extracts source text for a tree-sitter node using byte offsets.
+     * Checks whether a node exists and is safe to read.
+     */
+    private boolean isValidNode(TSNode node) {
+        if (node == null) {
+            return false;
+        }
+        try {
+            node.getType();
+            return true;
+        } catch (TSException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Extracts source text for a tree-sitter node from UTF-8 byte offsets.
      *
      * @param node tree node whose text span should be read
-     * @param source full source text that was parsed
-     * @return exact source slice represented by the provided node
+     * @param sourceBytes UTF-8 bytes of the full source text that was parsed
+     * @return source slice represented by the node, or empty string when unavailable
      */
-    private String getNodeText(TSNode node, String source){
-        int startingByte  = node.getStartByte();
-        int endingByte = node.getEndByte();
-        return source.substring(startingByte,endingByte);
+    private String getNodeText(TSNode node, byte[] sourceBytes){
+        if (!isValidNode(node) || sourceBytes == null) {
+            return "";
+        }
+        try {
+            int startingByte  = node.getStartByte();
+            int endingByte = node.getEndByte();
+            if (startingByte < 0 || endingByte < startingByte || endingByte > sourceBytes.length) {
+                return "";
+            }
+            return new String(sourceBytes, startingByte, endingByte - startingByte, StandardCharsets.UTF_8);
+        } catch (TSException e) {
+            return "";
+        }
     }
 
     /**
@@ -87,12 +116,15 @@ public class IndexEngineService {
      */
     private TSNode getTypeNode(TSNode declaration) {
         TSNode typeNode = declaration.getChildByFieldName("type");
-        if (typeNode != null) {
+        if (isValidNode(typeNode)) {
             return typeNode;
         }
 
         for (int i = 0; i < declaration.getChildCount(); i++) {
             TSNode child = declaration.getChild(i);
+            if (!isValidNode(child)) {
+                continue;
+            }
             String childType = child.getType();
             if ("type_identifier".equals(childType)
                     || "scoped_type_identifier".equals(childType)
@@ -107,19 +139,22 @@ public class IndexEngineService {
 
     /**
      * Tries to resolve an identifier child by field name, then by scanning children.
-     *
+     * READ
      * @param node node containing an identifier
      * @param fieldName preferred field name
      * @return identifier node when found, otherwise null
      */
     private TSNode getIdentifierNode(TSNode node, String fieldName) {
         TSNode idNode = node.getChildByFieldName(fieldName);
-        if (idNode != null) {
+        if (isValidNode(idNode)) {
             return idNode;
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
+            if (!isValidNode(child)) {
+                continue;
+            }
             if ("identifier".equals(child.getType())) {
                 return child;
             }
@@ -132,25 +167,36 @@ public class IndexEngineService {
      * Adds all declared variables from a declaration node to the visible type map.
      *
      * @param declaration declaration node containing variable declarators
-     * @param source full source text
+     * @param sourceBytes UTF-8 bytes of full source text
      * @param visibleTypes in-scope variable-to-type map
      */
-    private void collectDeclaredVariables(TSNode declaration, String source, Map<String, String> visibleTypes) {
+    private void collectDeclaredVariables(TSNode declaration, byte[] sourceBytes, Map<String, String> visibleTypes) {
+//        Extract type node
         TSNode typeNode = getTypeNode(declaration);
         if (typeNode == null) {
             return;
         }
-
-        String declaredType = getNodeText(typeNode, source);
+//        Extract type as a text
+        String declaredType = getNodeText(typeNode, sourceBytes);
+        if (declaredType.isBlank()) {
+            return;
+        }
         for (int i = 0; i < declaration.getChildCount(); i++) {
             TSNode child = declaration.getChild(i);
+            if (!isValidNode(child)) {
+                continue;
+            }
             if (!"variable_declarator".equals(child.getType())) {
                 continue;
             }
-
+//            Extract the name of the node
             TSNode nameNode = getIdentifierNode(child, "name");
             if (nameNode != null) {
-                visibleTypes.put(getNodeText(nameNode, source), declaredType);
+//                Add the node type & name as key-value pair
+                String variableName = getNodeText(nameNode, sourceBytes);
+                if (!variableName.isBlank()) {
+                    visibleTypes.put(variableName, declaredType);
+                }
             }
         }
     }
@@ -159,25 +205,36 @@ public class IndexEngineService {
      * Adds method parameters to the visible type map.
      *
      * @param methodDeclaration method declaration node
-     * @param source full source text
+     * @param sourceBytes UTF-8 bytes of full source text
      * @param visibleTypes in-scope variable-to-type map
      */
-    private void collectMethodParameters(TSNode methodDeclaration, String source, Map<String, String> visibleTypes) {
+    private void collectMethodParameters(TSNode methodDeclaration, byte[] sourceBytes, Map<String, String> visibleTypes) {
+//        Get & check if parameters exists in the method
         TSNode parametersNode = methodDeclaration.getChildByFieldName("parameters");
-        if (parametersNode == null) {
+        if (!isValidNode(parametersNode)) {
             return;
         }
 
+//        Go through each parameter and add it to the visible types map, using the parameter name as key and parameter type as value
         for (int i = 0; i < parametersNode.getChildCount(); i++) {
             TSNode parameterNode = parametersNode.getChild(i);
+            if (!isValidNode(parameterNode)) {
+                continue;
+            }
+//            Only process formal parameters (e.g., 'int a', 'String b'); skip punctuation and other non-formal nodes
             if (!"formal_parameter".equals(parameterNode.getType())) {
                 continue;
             }
-
+//          Extract node type -> int
             TSNode typeNode = getTypeNode(parameterNode);
+//          Extract node name -> a,b
             TSNode nameNode = getIdentifierNode(parameterNode, "name");
             if (typeNode != null && nameNode != null) {
-                visibleTypes.put(getNodeText(nameNode, source), getNodeText(typeNode, source));
+                String parameterName = getNodeText(nameNode, sourceBytes);
+                String parameterType = getNodeText(typeNode, sourceBytes);
+                if (!parameterName.isBlank() && !parameterType.isBlank()) {
+                    visibleTypes.put(parameterName, parameterType);
+                }
             }
         }
     }
@@ -186,27 +243,27 @@ public class IndexEngineService {
      * Resolves the receiver type for a method invocation object.
      *
      * @param objectNode invocation receiver node
-     * @param source full source text
+     * @param sourceBytes UTF-8 bytes of full source text
      * @param visibleTypes in-scope variable-to-type map
      * @return resolved receiver type or {@code null} when unresolved
      */
-    private String resolveReceiverType(TSNode objectNode, String source, Map<String, String> visibleTypes) {
-        if (objectNode == null) {
+    private String resolveReceiverType(TSNode objectNode, byte[] sourceBytes, Map<String, String> visibleTypes) {
+        if (!isValidNode(objectNode)) {
             return null;
         }
-
+//        Check if the receiver node type exists in visibleTypes & returns it
         if ("identifier".equals(objectNode.getType())) {
-            return visibleTypes.get(getNodeText(objectNode, source));
+            return visibleTypes.get(getNodeText(objectNode, sourceBytes));
         }
-
+//        If the node type is a field_access(this.service.add), we want to extract the field name and check if it exists in visibleTypes as well
         if ("field_access".equals(objectNode.getType())) {
             TSNode fieldNode = objectNode.getChildByFieldName("field");
-            if (fieldNode != null) {
-                return visibleTypes.get(getNodeText(fieldNode, source));
+            if (isValidNode(fieldNode)) {
+                return visibleTypes.get(getNodeText(fieldNode, sourceBytes));
             }
         }
-
-        String objectText = getNodeText(objectNode, source);
+//      Fallback -> If the name starts capital, consider it as a class
+        String objectText = getNodeText(objectNode, sourceBytes);
         if (!objectText.isEmpty() && Character.isUpperCase(objectText.charAt(0))) {
             return objectText;
         }
@@ -230,7 +287,7 @@ public class IndexEngineService {
         if (!Character.isLowerCase(objectText.charAt(0))) {
             return null;
         }
-
+//      Construct class & method name to use as method id and check if it exists in the known method ids set. This is a simple heuristic that can help in cases where the receiver type cannot be resolved but the instance name follows common Java naming conventions.
         String inferredClass = Character.toUpperCase(objectText.charAt(0)) + objectText.substring(1);
         String inferredMethodId = inferredClass + "." + methodName;
         if (knownMethodIds.contains(inferredMethodId)) {
@@ -240,72 +297,142 @@ public class IndexEngineService {
     }
 
     /**
+     * Collects interface names from class-like declarations.
+     */
+    private List<String> collectImplementedTypes(TSNode declarationNode, byte[] sourceBytes) {
+        List<String> implementedTypes = new ArrayList<>();
+        TSNode interfacesNode = declarationNode.getChildByFieldName("interfaces");
+        if (!isValidNode(interfacesNode)) {
+            interfacesNode = declarationNode.getChildByFieldName("interface");
+        }
+        if (!isValidNode(interfacesNode)) {
+            return implementedTypes;
+        }
+
+        collectTypeIdentifiers(interfacesNode, sourceBytes, implementedTypes);
+        return implementedTypes;
+    }
+
+    /**
+     * Recursively extracts type-like identifiers from a node.
+     */
+    private void collectTypeIdentifiers(TSNode node, byte[] sourceBytes, List<String> output) {
+        if (!isValidNode(node)) {
+            return;
+        }
+
+        String nodeType = node.getType();
+        if ("type_identifier".equals(nodeType)
+                || "scoped_type_identifier".equals(nodeType)
+                || "generic_type".equals(nodeType)) {
+            String typeName = getNodeText(node, sourceBytes);
+            if (!typeName.isBlank()) {
+                output.add(typeName);
+            }
+            return;
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectTypeIdentifiers(node.getChild(i), sourceBytes, output);
+        }
+    }
+
+    /**
      * Traverses the syntax tree recursively and records classes, methods, and invocations.
      *
      * @param node current tree node being visited
      * @param path source file path for logging context
-     * @param source source text used to resolve node text
+     * @param source source text used for logging/debugging
+     * @param sourceBytes UTF-8 bytes used to resolve node text from tree-sitter byte spans
      * @param currentMethodId currently active method id during traversal
      * @param currentClass currently active class name during traversal
-     * @param visibleTypes in-scope variable-to-type map (method-level scope)
+     * @param visibleTypes in-scope variable-to-type map (nested lexical scope: new copies created for class/method/block contexts)
      */
-    private void walkTree(TSNode node, Path path, String source, String currentMethodId, String currentClass, Map<String, String> visibleTypes) {
+    private void walkTree(TSNode node, Path path, String source, byte[] sourceBytes, String currentMethodId, String currentClass, Map<String, String> visibleTypes) {
+
+        if (!isValidNode(node)) {
+            return;
+        }
+
         Map<String, String> currentScope = visibleTypes;
         String type = node.getType();
 
         if ("class_declaration".equals(type) || "method_declaration".equals(type) || "block".equals(type)) {
             currentScope = new HashMap<>(visibleTypes);
         }
-
-        if ("class_declaration".equals(type)) {
+//        If a class is declared in the current node, extract its name and add it to the graph. Update the current class context for nested nodes.
+        if ("class_declaration".equals(type) || "enum_declaration".equals(type) || "record_declaration".equals(type)) {
             TSNode nodeName = node.getChildByFieldName("name");
-            if (nodeName != null) {
-                currentClass = getNodeText(nodeName, source);
-                this.graphInMemory.addClassNode(currentClass);
-                System.out.println("Found class: " + currentClass + " in file: " + path);
+            if (isValidNode(nodeName)) {
+                currentClass = getNodeText(nodeName, sourceBytes);
+                if (currentClass.isBlank()) {
+                    currentClass = null;
+                }
+
+//                Add the node to the graph
+                if (currentClass != null) {
+                    List<String> implementedTypes = collectImplementedTypes(node, sourceBytes);
+                    this.graphInMemory.addClassNode(currentClass, type, implementedTypes);
+                    System.out.println("Found class: " + currentClass + " in file: " + path);
+                }
             }
         }
 
+//        If a method is declared in the current node, extract its name and add it to the graph. Update the current method context for nested nodes. Also collect method parameters into the visible type map.
         if ("method_declaration".equals(type)) {
             TSNode nodeName = node.getChildByFieldName("name");
-            if (nodeName != null) {
-                String methodName = getNodeText(nodeName, source);
-                currentMethodId = this.graphInMemory.addMethodNode(methodName, currentClass);
-                knownMethodIds.add(currentMethodId);
-                collectMethodParameters(node, source, currentScope);
-                System.out.println("Found method: " + methodName + " in class: " + currentClass);
+            if (isValidNode(nodeName) && currentClass != null) {
+                String methodName = getNodeText(nodeName, sourceBytes);
+                if (methodName.isBlank()) {
+                    methodName = null;
+                }
+                if (methodName != null) {
+                    currentMethodId = this.graphInMemory.addMethodNode(methodName, currentClass);
+                    knownMethodIds.add(currentMethodId);
+//                Add method parameters to visibleTypes(some elements can be declared as parameters)
+                    collectMethodParameters(node, sourceBytes, currentScope);
+                    System.out.println("Found method: " + methodName + " in class: " + currentClass);
+                }
             }
         }
 
         if ("field_declaration".equals(type) || "local_variable_declaration".equals(type)) {
-            collectDeclaredVariables(node, source, currentScope);
+//            Register all declared variables and their types in the current scope
+            collectDeclaredVariables(node, sourceBytes, currentScope);
         }
 
         if ("method_invocation".equals(type)) {
+//           Extract the method invocation receiver and method name (e.g., service.add() or Service.add())
             TSNode nodeObject = node.getChildByFieldName("object");
             TSNode nodeName = node.getChildByFieldName("name");
-            if (nodeName != null && nodeObject != null && currentMethodId != null) {
-                String objectText = getNodeText(nodeObject, source);
-                String methodName = getNodeText(nodeName, source);
-                String receiverType = resolveReceiverType(nodeObject, source, currentScope);
-                String invocation = receiverType != null ? receiverType + "." + methodName : objectText + "." + methodName;
+            if (isValidNode(nodeName) && isValidNode(nodeObject) && currentMethodId != null) {
+                String objectText = getNodeText(nodeObject, sourceBytes);
+                String methodName = getNodeText(nodeName, sourceBytes);
+                if (!objectText.isBlank() && !methodName.isBlank()) {
+//                Add type resolution to extract the element type
+                    String receiverType = resolveReceiverType(nodeObject, sourceBytes, currentScope);
+                    String invocation = receiverType != null ? receiverType + "." + methodName : objectText + "." + methodName;
 
-                if (receiverType == null) {
-                    String resolvedKnownMethod = resolveKnownMethodFromInstanceName(objectText, methodName);
-                    if (resolvedKnownMethod != null) {
-                        invocation = resolvedKnownMethod;
+                    if (receiverType == null) {
+                        //Simple fallback for type resolution
+                        String resolvedKnownMethod = resolveKnownMethodFromInstanceName(objectText, methodName);
+                        if (resolvedKnownMethod != null) {
+                            invocation = resolvedKnownMethod;
+                        }
                     }
-                }
 
-                if (!objectText.startsWith("System.")) {
-                    this.graphInMemory.addMethodCall(currentMethodId, invocation);
-                    System.out.println("Found method invocation: " + invocation);
+                    if (!objectText.startsWith("System.")) {
+//                    Add method invocation into the graph
+                        this.graphInMemory.addMethodCall(currentMethodId, invocation);
+                        System.out.println("Found method invocation: " + invocation);
+                    }
                 }
             }
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
-            walkTree(node.getChild(i), path, source, currentMethodId, currentClass, currentScope);
+//            Iteratively go through each node in the tree
+            walkTree(node.getChild(i), path, source, sourceBytes, currentMethodId, currentClass, currentScope);
         }
 
     }
@@ -319,11 +446,15 @@ public class IndexEngineService {
      */
     private void parseFile(Path path, TSParser parser) {
         try {
+//            Read the content in the file
             String fileContents = Files.readString(path);
+            byte[] fileBytes = fileContents.getBytes(StandardCharsets.UTF_8);
+//            Parse the file to a tree
             TSTree tsTree = parser.parseString(null, fileContents);
             TSNode rootNode = tsTree.getRootNode();
-            walkTree(rootNode, path, fileContents, null, null, new HashMap<>());
-        } catch (IOException e) {
+//            Go through the tree to extract symbols
+            walkTree(rootNode, path, fileContents, fileBytes, null, null, new HashMap<>());
+        } catch (IOException | TSException e) {
             System.err.println("Error reading file: " + path + " - " + e.getMessage());
         }
     }
@@ -337,11 +468,13 @@ public class IndexEngineService {
     public void parseRepository(Path repoPath) throws IOException {
         TSParser parser = new TSParser();
         parser.setLanguage(new TreeSitterJava());
-
-        Files.walk(repoPath)
-                .filter(Files::isRegularFile)
-                .filter(path -> path.toString().endsWith(".java"))
-                .forEach((path) -> parseFile(path,parser));
+//        Parse the files in the repository one by one
+        try (var stream = Files.walk(repoPath)) {
+            stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .forEach((path) -> parseFile(path, parser));
+        }
     }
 
     /**
@@ -356,8 +489,10 @@ public class IndexEngineService {
         if (repo.isPresent()) {
 
             System.out.println("Starting indexing for: " + repo.get().toString());
+//            Clear the graph before indexing to ensure no previous nodes exist
             this.graphInMemory.resetGraph();
             this.knownMethodIds.clear();
+//            Start indexing the repository
             parseRepository(repo.get());
             this.graphInMemory.writeToJson();
             return repo;

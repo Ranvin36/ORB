@@ -14,6 +14,12 @@ class ClassNode {
     @Getter
     @Setter
     private String name;
+    @Getter
+    @Setter
+    private String type;
+    @Getter
+    @Setter
+    private List<String> implement = new ArrayList<>();
 }
 
 /**
@@ -65,10 +71,16 @@ public class GraphInMemory {
      *
      * @param className class name to index
      */
-    public void addClassNode(String className){
-        classes.computeIfAbsent(className, node -> {
-            ClassNode classNode = new ClassNode();
+    public void addClassNode(String className, String type, List<String> implement){
+        classes.compute(className, (nodeName, existingNode) -> {
+            ClassNode classNode = existingNode == null ? new ClassNode() : existingNode;
             classNode.setName(className);
+            classNode.setType(type);
+            if (implement == null || implement.isEmpty()) {
+                classNode.setImplement(new ArrayList<>());
+            } else {
+                classNode.setImplement(new ArrayList<>(new LinkedHashSet<>(implement)));
+            }
             return classNode;
         });
     }
