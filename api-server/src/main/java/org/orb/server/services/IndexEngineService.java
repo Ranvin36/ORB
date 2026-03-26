@@ -143,7 +143,8 @@ public class IndexEngineService {
 
     /**
      * Tries to resolve an identifier child by field name, then by scanning children.
-     * READ
+     * It first checks the specified field, then scans all children for an {@code identifier} node.
+     *
      * @param node node containing an identifier
      * @param fieldName preferred field name
      * @return identifier node when found, otherwise null

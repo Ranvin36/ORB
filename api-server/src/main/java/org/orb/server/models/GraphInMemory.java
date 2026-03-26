@@ -1,11 +1,13 @@
 package org.orb.server.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.Getter;
 import lombok.Setter;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 /**
@@ -73,15 +75,15 @@ public class GraphInMemory {
      *
      * @param className class name to index
      */
-    public void addClassNode(String className, String type, List<String> implement){
+    public void addClassNode(String className, String type, List<String> implementedInterfaces){
         classes.compute(className, (nodeName, existingNode) -> {
             ClassNode classNode = existingNode == null ? new ClassNode() : existingNode;
             classNode.setName(className);
             classNode.setType(type);
-            if (implement == null || implement.isEmpty()) {
+            if (implementedInterfaces == null || implementedInterfaces.isEmpty()) {
                 classNode.setImplement(new ArrayList<>());
             } else {
-                classNode.setImplement(new ArrayList<>(new LinkedHashSet<>(implement)));
+                classNode.setImplement(new ArrayList<>(new LinkedHashSet<>(implementedInterfaces)));
             }
             return classNode;
         });
@@ -126,7 +128,7 @@ public class GraphInMemory {
      * Serializes the in-memory graph and writes it to {@code graph.json}.
      * Also prints the generated JSON to standard output.
      */
-    public void writeToJson(){
+    public void writeToJson() throws IOException {
         Map<String, Object> combinedGraphInMemory = new HashMap<>();
         combinedGraphInMemory.put("methods",methods);
         combinedGraphInMemory.put("classes",classes);
