@@ -72,6 +72,10 @@ public class IndexEngineService {
 
     /**
      * Checks whether a node exists and is safe to read.
+     * Verifies that the node is not null and can be accessed without throwing a TSException.
+     *
+     * @param node the tree-sitter node to validate
+     * @return {@code true} if the node is non-null and accessible, {@code false} otherwise
      */
     private boolean isValidNode(TSNode node) {
         if (node == null) {
@@ -145,11 +149,12 @@ public class IndexEngineService {
      * @return identifier node when found, otherwise null
      */
     private TSNode getIdentifierNode(TSNode node, String fieldName) {
+//      Extract name based on the fieldName
         TSNode idNode = node.getChildByFieldName(fieldName);
         if (isValidNode(idNode)) {
             return idNode;
         }
-
+//      Go through every child and return the identifier node
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
             if (!isValidNode(child)) {
@@ -189,7 +194,7 @@ public class IndexEngineService {
             if (!"variable_declarator".equals(child.getType())) {
                 continue;
             }
-//            Extract the name of the node
+//          Extract the identifier node
             TSNode nameNode = getIdentifierNode(child, "name");
             if (nameNode != null) {
 //                Add the node type & name as key-value pair
@@ -251,11 +256,14 @@ public class IndexEngineService {
         if (!isValidNode(objectNode)) {
             return null;
         }
-//        Check if the receiver node type exists in visibleTypes & returns it
+//      Check if the receiver node type exists in visibleTypes -> a single name token(no dot)
+//      Ex :- service, Calculator, add, count
         if ("identifier".equals(objectNode.getType())) {
             return visibleTypes.get(getNodeText(objectNode, sourceBytes));
         }
-//        If the node type is a field_access(this.service.add), we want to extract the field name and check if it exists in visibleTypes as well
+//      If the node type is field_access(this.service.add), extract the field name and check if it exists in visibleTypes as well
+//      A dot-member expression (something.name)
+//      Ex :- this.service, obj.value, config.database
         if ("field_access".equals(objectNode.getType())) {
             TSNode fieldNode = objectNode.getChildByFieldName("field");
             if (isValidNode(fieldNode)) {
@@ -301,6 +309,7 @@ public class IndexEngineService {
      */
     private List<String> collectImplementedTypes(TSNode declarationNode, byte[] sourceBytes) {
         List<String> implementedTypes = new ArrayList<>();
+//        Extract the interface nodes
         TSNode interfacesNode = declarationNode.getChildByFieldName("interfaces");
         if (!isValidNode(interfacesNode)) {
             interfacesNode = declarationNode.getChildByFieldName("interface");
@@ -320,10 +329,13 @@ public class IndexEngineService {
         if (!isValidNode(node)) {
             return;
         }
-
+//        Extract Node Type
         String nodeType = node.getType();
+//        A simple type name with no package/class prefix -> Service, Runnable, String
         if ("type_identifier".equals(nodeType)
+//        A qualified type name with dots (.), usually package or outer-class scope -> Service.Add(), com.acme.Plugin
                 || "scoped_type_identifier".equals(nodeType)
+//        A type with type arguments ->  List<String>, Map<String, Integer>, MyType<Foo>
                 || "generic_type".equals(nodeType)) {
             String typeName = getNodeText(node, sourceBytes);
             if (!typeName.isBlank()) {
@@ -349,11 +361,9 @@ public class IndexEngineService {
      * @param visibleTypes in-scope variable-to-type map (nested lexical scope: new copies created for class/method/block contexts)
      */
     private void walkTree(TSNode node, Path path, String source, byte[] sourceBytes, String currentMethodId, String currentClass, Map<String, String> visibleTypes) {
-
         if (!isValidNode(node)) {
             return;
         }
-
         Map<String, String> currentScope = visibleTypes;
         String type = node.getType();
 

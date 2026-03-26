@@ -1,5 +1,6 @@
 package org.orb.server.models;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 import tools.jackson.databind.ObjectMapper;
@@ -19,6 +20,7 @@ class ClassNode {
     private String type;
     @Getter
     @Setter
+    @JsonProperty("implements")
     private List<String> implement = new ArrayList<>();
 }
 
