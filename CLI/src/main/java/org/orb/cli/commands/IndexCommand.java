@@ -6,7 +6,6 @@ import org.orb.cli.Models.IndexRequest;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Command;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -29,12 +28,12 @@ public class IndexCommand implements Runnable {
         String home = System.getenv("USERPROFILE");
         String orbPath = Paths.get(String.valueOf(Path.of(home).resolve("documents")), "orb").toString();
         Path repoPath = Paths.get(orbPath, repoName);
-        if(Files.notExists(repoPath)){
+        if (Files.notExists(repoPath)) {
             System.err.println("Error: Repository not found in " + orbPath);
             System.err.println("Hint: Make sure to add the repository using 'orb add <REPO_LINK>' before indexing.");
             return;
         }
-        else{
+        else {
             try (Stream<Path> stream = Files.list(repoPath)) {
                 if (stream.findAny().isEmpty()) {
                     System.err.println("Error: Repository directory is empty: " + repoPath);

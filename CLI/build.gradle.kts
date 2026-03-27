@@ -1,10 +1,16 @@
 plugins {
     java
     application
+    checkstyle
 }
 
 group = "org.orb"
 version = "1.0-SNAPSHOT"
+
+checkstyle {
+    toolVersion = "10.17.0"
+    configFile = file("$rootDir/../checkstyle.xml")
+}
 
 repositories {
     mavenCentral()
