@@ -22,6 +22,9 @@ class ClassNode {
     private String type;
     @Getter
     @Setter
+    private String parentClass;
+    @Getter
+    @Setter
     @JsonProperty("implements")
     private List<String> implement = new ArrayList<>();
 }
@@ -75,7 +78,7 @@ public class GraphInMemory {
      *
      * @param className class name to index
      */
-    public void addClassNode(String className, String type, List<String> implementedInterfaces){
+    public void addClassNode(String className, String type, List<String> implementedInterfaces, List<String> extendedClasses) {
         classes.compute(className, (nodeName, existingNode) -> {
             ClassNode classNode = existingNode == null ? new ClassNode() : existingNode;
             classNode.setName(className);
@@ -84,6 +87,12 @@ public class GraphInMemory {
                 classNode.setImplement(new ArrayList<>());
             } else {
                 classNode.setImplement(new ArrayList<>(new LinkedHashSet<>(implementedInterfaces)));
+            }
+            if (extendedClasses == null || extendedClasses.isEmpty()) {
+                classNode.setParentClass("");
+            }
+            else {
+                classNode.setParentClass(extendedClasses.get(extendedClasses.size() - 1));
             }
             return classNode;
         });

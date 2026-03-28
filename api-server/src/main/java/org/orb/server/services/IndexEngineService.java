@@ -23,8 +23,8 @@ import org.treesitter.TreeSitterJava;
 
 @Service
 public class IndexEngineService {
-    private GraphInMemory graphInMemory;
-    private Set<String> knownMethodIds;
+    private final GraphInMemory graphInMemory;
+    private final Set<String> knownMethodIds;
 
     /**
      * Creates a new indexing service with an empty in-memory graph.
@@ -305,6 +305,19 @@ public class IndexEngineService {
         return null;
     }
 
+    private List<String> collectExtendedTypes(TSNode declarationNode, byte[] sourceBytes) {
+        List<String> extendedTypes = new ArrayList<>();
+        TSNode extendedNodes = declarationNode.getChildByFieldName("superclass");
+        if(!isValidNode(extendedNodes)){
+            extendedNodes = declarationNode.getChildByFieldName("superclasses");
+        }
+        if(!isValidNode(extendedNodes)){
+            return extendedTypes;
+        }
+        collectTypeIdentifiers(extendedNodes, sourceBytes,extendedTypes);
+        return extendedTypes;
+    }
+
     /**
      * Collects interface names from class-like declarations.
      */
@@ -383,7 +396,8 @@ public class IndexEngineService {
 //                Add the node to the graph
                 if (currentClass != null) {
                     List<String> implementedTypes = collectImplementedTypes(node, sourceBytes);
-                    this.graphInMemory.addClassNode(currentClass, type, implementedTypes);
+                    List<String> extendedTypes = collectExtendedTypes(node,sourceBytes);
+                    this.graphInMemory.addClassNode(currentClass, type, implementedTypes, extendedTypes);
                     System.out.println("Found class: " + currentClass + " in file: " + path);
                 }
             }
