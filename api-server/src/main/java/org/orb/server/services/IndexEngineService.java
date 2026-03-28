@@ -119,9 +119,12 @@ public class IndexEngineService {
     }
 
     /**
-     * Tries to resolve a declaration type node across common Java grammar variants.
+     * Resolves the type node from a declaration by checking the "type" field first,
+     * then scanning children for common type node patterns.
+     * Handles variations across Java grammar definitions (type_identifier, 
+     * scoped_type_identifier, generic_type, and other *_type variants).
      *
-     * @param declaration declaration node
+     * @param declaration declaration node (e.g., field_declaration, local_variable_declaration)
      * @return type node when found, otherwise null
      */
     private TSNode getTypeNode(TSNode declaration) {
@@ -148,13 +151,12 @@ public class IndexEngineService {
     }
 
     /**
-     * Tries to resolve an identifier child by field name, then by scanning
-     * children.
-     * It first checks the specified field, then scans all children for an
-     * {@code identifier} node.
+     * Resolves an identifier child node by first checking the specified field name,
+     * then scanning all children for an {@code identifier} node type.
+     * Used to extract names from various declaration and expression nodes.
      *
-     * @param node      node containing an identifier
-     * @param fieldName preferred field name
+     * @param node      parent node containing an identifier
+     * @param fieldName preferred field name to check first (e.g., "name", "id")
      * @return identifier node when found, otherwise null
      */
     private TSNode getIdentifierNode(TSNode node, String fieldName) {
@@ -178,11 +180,14 @@ public class IndexEngineService {
     }
 
     /**
-     * Adds all declared variables from a declaration node to the visible type map.
+     * Extracts and registers all declared variables from a field or local variable
+     * declaration into the visible types map.
+     * For each variable declarator, resolves the declared type and adds the mapping
+     * {@code variableName -> declaredType} to the scope.
      *
-     * @param declaration  declaration node containing variable declarators
+     * @param declaration  field or local variable declaration node
      * @param sourceBytes  UTF-8 bytes of full source text
-     * @param visibleTypes in-scope variable-to-type map
+     * @param visibleTypes in-scope variable-to-type map to update
      */
     private void collectDeclaredVariables(TSNode declaration, byte[] sourceBytes, Map<String, String> visibleTypes) {
         // Extract type node
@@ -216,11 +221,14 @@ public class IndexEngineService {
     }
 
     /**
-     * Adds method parameters to the visible type map.
+     * Extracts and registers method parameters into the visible types map.
+     * For each formal parameter node, resolves the parameter type and name,
+     * then adds the mapping {@code parameterName -> parameterType} to the scope.
+     * Skips non-formal parameters (e.g., punctuation, modifiers).
      *
-     * @param methodDeclaration method declaration node
+     * @param methodDeclaration method declaration node containing parameters
      * @param sourceBytes       UTF-8 bytes of full source text
-     * @param visibleTypes      in-scope variable-to-type map
+     * @param visibleTypes      in-scope variable-to-type map to update
      */
     private void collectMethodParameters(TSNode methodDeclaration, byte[] sourceBytes,
             Map<String, String> visibleTypes) {
@@ -258,11 +266,15 @@ public class IndexEngineService {
 
     /**
      * Resolves the receiver type for a method invocation object.
+     * Attempts three resolution strategies in order:
+     * 1. If receiver is a plain identifier, look it up in visible types
+     * 2. If receiver is a field_access (dot expression), extract field and look up
+     * 3. If receiver text starts with uppercase, treat as a class name literal
      *
      * @param objectNode   invocation receiver node
      * @param sourceBytes  UTF-8 bytes of full source text
      * @param visibleTypes in-scope variable-to-type map
-     * @return resolved receiver type or {@code null} when unresolved
+     * @return resolved receiver type (e.g., "Service", "Calculator") or {@code null} when unresolved
      */
     private String resolveReceiverType(TSNode objectNode, byte[] sourceBytes, Map<String, String> visibleTypes) {
         if (!isValidNode(objectNode)) {
@@ -323,6 +335,15 @@ public class IndexEngineService {
         return null;
     }
 
+    /**
+     * Extracts and collects superclass names from a class-like declaration.
+     * Checks both "superclass" and "superclasses" field names to handle grammar variations.
+     * Uses {@code collectTypeIdentifiers} to recursively extract type names.
+     *
+     * @param declarationNode class, enum, or record declaration node
+     * @param sourceBytes     UTF-8 bytes of full source text
+     * @return list of superclass type names; empty list if none found
+     */
     private List<String> collectExtendedTypes(TSNode declarationNode, byte[] sourceBytes) {
         List<String> extendedTypes = new ArrayList<>();
         TSNode extendedNodes = declarationNode.getChildByFieldName("superclass");
@@ -337,7 +358,13 @@ public class IndexEngineService {
     }
 
     /**
-     * Collects interface names from class-like declarations.
+     * Extracts and collects interface names from a class-like declaration.
+     * Checks both "interfaces" and "interface" field names to handle grammar variations.
+     * Uses {@code collectTypeIdentifiers} to recursively extract type names.
+     *
+     * @param declarationNode class or record declaration node
+     * @param sourceBytes     UTF-8 bytes of full source text
+     * @return list of interface type names; empty list if none found
      */
     private List<String> collectImplementedTypes(TSNode declarationNode, byte[] sourceBytes) {
         List<String> implementedTypes = new ArrayList<>();
@@ -355,7 +382,15 @@ public class IndexEngineService {
     }
 
     /**
-     * Recursively extracts type-like identifiers from a node.
+     * Recursively extracts type-like identifiers from a node and its children.
+     * Recognizes and collects three common type patterns:
+     * 1. {@code type_identifier} - simple type names (e.g., Service, String)
+     * 2. {@code scoped_type_identifier} - qualified names (e.g., com.acme.Plugin)
+     * 3. {@code generic_type} - parameterized types (e.g., List&lt;String&gt;)
+     *
+     * @param node        the node to scan for type identifiers
+     * @param sourceBytes UTF-8 bytes of full source text
+     * @param output      list to accumulate discovered type names
      */
     private void collectTypeIdentifiers(TSNode node, byte[] sourceBytes, List<String> output) {
         if (!isValidNode(node)) {
@@ -383,16 +418,19 @@ public class IndexEngineService {
     }
 
     /**
-     * Traverses the syntax tree recursively and records classes, methods, and
-     * invocations.
+     * Traverses the syntax tree recursively and records classes, methods,
+     * field/variable declarations, and method invocations into the in-memory graph.
+     * Maintains nested lexical scopes (class/method/block) to resolve variable types
+     * and method invocation receivers. Updates context (currentClass, currentMethodId)
+     * as scope enters/exits.
      *
      * @param node            current tree node being visited
      * @param path            source file path for logging context
      * @param source          source text used for logging/debugging
      * @param sourceBytes     UTF-8 bytes used to resolve node text from tree-sitter
      *                        byte spans
-     * @param currentMethodId currently active method id during traversal
-     * @param currentClass    currently active class name during traversal
+     * @param currentMethodId currently active method id during traversal (null at class scope)
+     * @param currentClass    currently active class name during traversal (null at file scope)
      * @param visibleTypes    in-scope variable-to-type map (nested lexical scope:
      *                        new copies created for class/method/block contexts)
      */
@@ -497,7 +535,10 @@ public class IndexEngineService {
     }
 
     /**
-     * Parses a single Java file and starts tree traversal from the root node.
+     * Parses a single Java file using tree-sitter and starts AST traversal from the root node.
+     * Reads the file as UTF-8, parses it into a concrete syntax tree, and invokes walkTree
+     * to extract classes, methods, and invocations.
+     * Catches and logs any IOException (file read errors) or TSException (parse errors).
      *
      * @param path   Java source file path
      * @param parser configured tree-sitter Java parser
@@ -518,10 +559,13 @@ public class IndexEngineService {
     }
 
     /**
-     * Walks all Java files in the repository and parses each file.
+     * Recursively walks the repository directory tree and parses all .java files.
+     * Creates a tree-sitter parser configured for Java, then uses Files.walk to
+     * traverse the directory tree, filtering for regular .java files.
+     * Parses each file individually via parseFile.
      *
-     * @param repoPath repository root path
-     * @throws IOException if directory walking fails
+     * @param repoPath repository root path to index
+     * @throws IOException if directory walking fails or file I/O errors occur
      */
     public void parseRepository(Path repoPath) throws IOException {
         TSParser parser = new TSParser();
@@ -536,11 +580,14 @@ public class IndexEngineService {
     }
 
     /**
-     * Finds the repository and triggers parsing/indexing when available.
+     * Initiates the full indexing pipeline for a given repository name.
+     * Locates the repository under Documents/orb, clears any previous graph state,
+     * triggers parseRepository to extract all classes/methods/invocations,
+     * then writes the final graph to JSON output.
      *
      * @param repoName repository folder name to index
-     * @return optional repository path when indexing starts successfully
-     * @throws IOException if repository lookup or traversal fails
+     * @return optional repository path when indexing starts successfully; empty otherwise
+     * @throws IOException if repository lookup or file I/O fails during indexing
      */
     public Optional<Path> startIndexing(String repoName) throws IOException {
         Optional<Path> repo = locateRepositoryInFileSystem(repoName);
