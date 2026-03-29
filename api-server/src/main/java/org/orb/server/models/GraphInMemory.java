@@ -130,7 +130,12 @@ public class GraphInMemory {
             methodNode1.setId(methodId);
             return methodNode1;
         });
-        methodNode.getCalls().add(methodCall);
+       List<String> calls = methodNode.getCalls();
+       if(calls.contains(methodCall)){
+           return;
+       }
+       calls.add(methodCall);
+       methodNode.setCalls(calls);
     }
 
     /**
