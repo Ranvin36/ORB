@@ -150,7 +150,6 @@ public class GraphInMemory {
         String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(combinedGraphInMemory);
         objectMapper.writerWithDefaultPrettyPrinter()
                 .writeValue(new File("graph.json"), combinedGraphInMemory);
-        System.out.println(json);
     }
 
 }
