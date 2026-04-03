@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 import org.orb.server.models.GraphInMemory;
+import org.orb.server.services.scanning.FileMetadata;
 import org.springframework.stereotype.Service;
 import org.treesitter.TSException;
 import org.treesitter.TSNode;
@@ -20,6 +21,7 @@ public class IndexEngineService {
     private final GraphInMemory graphInMemory;
     private final Set<String> knownMethodIds;
     private final Map<String, String> knownMethodReturnTypes;
+    private final Map<String, FileMetadata>  fileMetadataMap;
 
     /**
      * Creates a new indexing service with an empty in-memory graph.
@@ -28,6 +30,7 @@ public class IndexEngineService {
         this.graphInMemory = new GraphInMemory();
         this.knownMethodIds = new HashSet<>();
         this.knownMethodReturnTypes = new HashMap<>();
+        this.fileMetadataMap = new HashMap<>();
     }
 
     /**
@@ -173,6 +176,83 @@ public class IndexEngineService {
         }
 
         return null;
+    }
+
+    public FileMetadata collectImportDeclarations(TSNode rootNode, byte[] sourceBytes) {
+
+        if(!isValidNode(rootNode)) {
+            return null;
+        }
+
+        FileMetadata fileMetadata = new FileMetadata();
+
+//        Goes through each node and see if it's an import/package declaration
+        for (int i = 0; i < rootNode.getChildCount(); i++) {
+            TSNode child = rootNode.getChild(i);
+            String type = child.getType();
+//            Check if the node type is an import declaration
+            if ("package_declaration".equals(child.getType())) {
+//              Extract the name of the package
+                String pkgName = getNodeText(child, sourceBytes)
+                    .replace("package", "")
+                    .replace(";","")
+                    .trim();
+//              Set package name file basis
+                if (!pkgName.isBlank()) {
+                    fileMetadata.setPackageName(pkgName);
+                }
+
+                continue;
+            }
+
+//          If an import is declared, extract and add it to the identified data structure
+            if ("import_declaration".equals(child.getType())) {
+//              Replace the redundant fields
+                String importName = getNodeText(child, sourceBytes)
+                        .replace(";","")
+                        .trim();
+//              If the import is of a static type then call the static Map/Set then call them accordingly
+                boolean isStatic = importName.startsWith("import static ");
+                importName = isStatic ? importName.substring("import static".length()).trim() :  importName.substring("import ".length()).trim();
+
+
+                if (importName.endsWith(".*")) {
+                    importName = importName.replace(".*", "").trim();
+                    if (isStatic) {
+                        fileMetadata.getStaticWildcardImports().add(importName);
+                    }
+                    else {
+                        fileMetadata.getWildcardImports().add(importName);
+                    }
+
+                    continue;
+                }
+//              Add explicit calls(org.orb.server.ApiServerApplication) to the map considering static/non-static
+                int lastDot = importName.lastIndexOf('.');
+                if (lastDot > 0) {
+                    if (isStatic) {
+                        fileMetadata.getStaticMemberImports().put(importName.substring(lastDot+1), importName);
+                    }
+                    else {
+                        fileMetadata.getExplicitTypeImports().put(importName.substring(lastDot+1), importName);
+                    }
+
+                    continue;
+                }
+//               If it's a local class then extract it
+                if ("class_declaration".equals(type)
+                        || "interface_declaration".equals(type)
+                        || "enum_declaration".equals(type)
+                        || "record_declaration".equals(type)) {
+                    TSNode nameNode = child.getChildByFieldName("name");
+                    String localType = getNodeText(nameNode, sourceBytes);
+                    if (!localType.isBlank()) {
+                        fileMetadata.getLocalTypeNames().add(localType);
+                    }
+                }
+            }
+        }
+        return fileMetadata;
     }
 
     /**
@@ -425,6 +505,7 @@ public class IndexEngineService {
      * @return declared non-void return type, or {@code null} when unavailable
      */
     private String getMethodReturnType(TSNode methodDeclaration, byte[] sourceBytes) {
+//        Extract the return type from method
         TSNode returnTypeNode = methodDeclaration.getChildByFieldName("type");
         if (!isValidNode(returnTypeNode)) {
             return null;
@@ -719,7 +800,7 @@ public class IndexEngineService {
      * @param path   Java source file path
      * @param parser configured tree-sitter Java parser
      */
-    private void parseFile(Path path, TSParser parser) {
+    private void parseFile(Path path, TSParser parser, IndexingStage stage) {
         try {
             // Read the content in the file
             String fileContents = Files.readString(path);
@@ -727,6 +808,14 @@ public class IndexEngineService {
             // Parse the file to a tree
             TSTree tsTree = parser.parseString(null, fileContents);
             TSNode rootNode = tsTree.getRootNode();
+            if(stage == IndexingStage.SCANNING){
+                FileMetadata fileMetadata = collectImportDeclarations(rootNode,fileBytes);
+                if(fileMetadata != null){
+                    this.fileMetadataMap.put(String.valueOf(path), fileMetadata);
+                }
+                return;
+            }
+
             // Go through the tree to extract symbols
             walkTree(rootNode, path, fileContents, fileBytes, null, null, new HashMap<>());
         } catch (IOException | TSException e) {
@@ -746,13 +835,21 @@ public class IndexEngineService {
     public void parseRepository(Path repoPath) throws IOException {
         TSParser parser = new TSParser();
         parser.setLanguage(new TreeSitterJava());
+        List<Path> javaFiles = new ArrayList<>();
         // Parse the files in the repository one by one
         try (var stream = Files.walk(repoPath)) {
-            stream
-                    .filter(Files::isRegularFile)
+            stream.filter(Files::isRegularFile)
                     .filter(path -> path.toString().endsWith(".java"))
-                    .forEach((path) -> parseFile(path, parser));
+                    .forEach(javaFiles::add);
         }
+        for (Path javaFile : javaFiles) {
+            parseFile(javaFile, parser, IndexingStage.SCANNING);
+        }
+
+        for (Path javaFile : javaFiles) {
+            parseFile(javaFile, parser, IndexingStage.BUILDING);
+        }
+
     }
 
     /**
