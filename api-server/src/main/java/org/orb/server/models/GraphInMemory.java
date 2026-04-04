@@ -1,48 +1,12 @@
 package org.orb.server.models;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import lombok.Getter;
-import lombok.Setter;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-/**
- * Represents a class node in the extracted graph.
- */
-class ClassNode {
-    @Getter
-    @Setter
-    private String name;
-    @Getter
-    @Setter
-    private String type;
-    @Getter
-    @Setter
-    private String parentClass;
-    @Getter
-    @Setter
-    @JsonProperty("implements")
-    private List<String> implement = new ArrayList<>();
-}
-
-/**
- * Represents a method node and the invocations made from that method.
- */
-class MethodNode {
-    @Getter
-    @Setter
-    private String id;
-    @Getter
-    @Setter
-    private String className;
-    @Setter
-    @Getter
-    private List<String> calls = new ArrayList<String>();
-}
 
 /**
  * Stores extracted classes and methods in memory and exports them to JSON.

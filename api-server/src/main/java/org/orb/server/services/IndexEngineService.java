@@ -7,7 +7,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
+import static org.orb.server.services.scanning.TreeNodeUtils.getIdentifierNode;
+import static org.orb.server.services.scanning.TreeNodeUtils.getNodeText;
+import static org.orb.server.services.scanning.TreeNodeUtils.getTypeNode;
+import static org.orb.server.services.scanning.TreeNodeUtils.isValidNode;
+
 import org.orb.server.models.GraphInMemory;
+import org.orb.server.services.scanning.MetadataScanner;
 import org.springframework.stereotype.Service;
 import org.treesitter.TSException;
 import org.treesitter.TSNode;
@@ -18,16 +24,14 @@ import org.treesitter.TreeSitterJava;
 @Service
 public class IndexEngineService {
     private final GraphInMemory graphInMemory;
-    private final Set<String> knownMethodIds;
-    private final Map<String, String> knownMethodReturnTypes;
+    private final MetadataScanner metadataScanner;
 
     /**
      * Creates a new indexing service with an empty in-memory graph.
      */
     public IndexEngineService() {
         this.graphInMemory = new GraphInMemory();
-        this.knownMethodIds = new HashSet<>();
-        this.knownMethodReturnTypes = new HashMap<>();
+        this.metadataScanner = new MetadataScanner();
     }
 
     /**
@@ -69,111 +73,6 @@ public class IndexEngineService {
         return Optional.empty();
     }
 
-    /**
-     * Checks whether a node exists and is safe to read.
-     * Verifies that the node is not null and can be accessed without throwing a
-     * TSException.
-     *
-     * @param node the tree-sitter node to validate
-     * @return {@code true} if the node is non-null and accessible, {@code false}
-     *         otherwise
-     */
-    private boolean isValidNode(TSNode node) {
-        if (node == null) {
-            return false;
-        }
-        try {
-            node.getType();
-            return true;
-        } catch (TSException e) {
-            return false;
-        }
-    }
-
-    /**
-     * Extracts source text for a tree-sitter node from UTF-8 byte offsets.
-     *
-     * @param node        tree node whose text span should be read
-     * @param sourceBytes UTF-8 bytes of the full source text that was parsed
-     * @return source slice represented by the node, or empty string when
-     *         unavailable
-     */
-    private String getNodeText(TSNode node, byte[] sourceBytes) {
-        if (!isValidNode(node) || sourceBytes == null) {
-            return "";
-        }
-        try {
-            int startingByte = node.getStartByte();
-            int endingByte = node.getEndByte();
-            if (startingByte < 0 || endingByte < startingByte || endingByte > sourceBytes.length) {
-                return "";
-            }
-            return new String(sourceBytes, startingByte, endingByte - startingByte, StandardCharsets.UTF_8);
-        } catch (TSException e) {
-            return "";
-        }
-    }
-
-    /**
-     * Resolves the type node from a declaration by checking the "type" field first,
-     * then scanning children for common type node patterns.
-     * Handles variations across Java grammar definitions (type_identifier, 
-     * scoped_type_identifier, generic_type, and other *_type variants).
-     *
-     * @param declaration declaration node (e.g., field_declaration, local_variable_declaration)
-     * @return type node when found, otherwise null
-     */
-    private TSNode getTypeNode(TSNode declaration) {
-        TSNode typeNode = declaration.getChildByFieldName("type");
-        if (isValidNode(typeNode)) {
-            return typeNode;
-        }
-
-        for (int i = 0; i < declaration.getChildCount(); i++) {
-            TSNode child = declaration.getChild(i);
-            if (!isValidNode(child)) {
-                continue;
-            }
-            String childType = child.getType();
-            if ("type_identifier".equals(childType)
-                    || "scoped_type_identifier".equals(childType)
-                    || "generic_type".equals(childType)
-                    || childType.endsWith("_type")) {
-                return child;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Resolves an identifier child node by first checking the specified field name,
-     * then scanning all children for an {@code identifier} node type.
-     * Used to extract names from various declaration and expression nodes.
-     *
-     * @param node      parent node containing an identifier
-     * @param fieldName preferred field name to check first (e.g., "name", "id")
-     * @return identifier node when found, otherwise null
-     */
-    private TSNode getIdentifierNode(TSNode node, String fieldName) {
-        // Extract name based on the fieldName
-        TSNode idNode = node.getChildByFieldName(fieldName);
-        if (isValidNode(idNode)) {
-            return idNode;
-        }
-        // Go through every child and return the identifier node
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (!isValidNode(child)) {
-                continue;
-            }
-            if ("identifier".equals(child.getType())) {
-                return child;
-            }
-        }
-
-        return null;
-    }
 
     /**
      * Extracts and registers all declared variables from a field or local variable
@@ -255,8 +154,6 @@ public class IndexEngineService {
                 String parameterType = getNodeText(typeNode, sourceBytes);
                 if (!parameterName.isBlank() && !parameterType.isBlank()) {
                     visibleTypes.put(parameterName, parameterType);
-//                    System.out.println("parameterName: " + parameterName + ", parameterType: " + parameterType);
-
                 }
             }
         }
@@ -327,114 +224,12 @@ public class IndexEngineService {
         // common Java naming conventions.
         String inferredClass = Character.toUpperCase(objectText.charAt(0)) + objectText.substring(1);
         String inferredMethodId = inferredClass + "." + methodName;
-        if (knownMethodIds.contains(inferredMethodId)) {
+        if (metadataScanner.hasKnownMethodId(inferredMethodId)) {
             return inferredMethodId;
         }
         return null;
     }
 
-    /**
-     * Extracts and collects superclass names from a class-like declaration.
-     * Checks both "superclass" and "superclasses" field names to handle grammar variations.
-     * Uses {@code collectTypeIdentifiers} to recursively extract type names.
-     *
-     * @param declarationNode class, enum, or record declaration node
-     * @param sourceBytes     UTF-8 bytes of full source text
-     * @return list of superclass type names; empty list if none found
-     */
-    private List<String> collectExtendedTypes(TSNode declarationNode, byte[] sourceBytes) {
-        List<String> extendedTypes = new ArrayList<>();
-        TSNode extendedNodes = declarationNode.getChildByFieldName("superclass");
-        if (!isValidNode(extendedNodes)) {
-            extendedNodes = declarationNode.getChildByFieldName("superclasses");
-        }
-        if (!isValidNode(extendedNodes)) {
-            return extendedTypes;
-        }
-        collectTypeIdentifiers(extendedNodes, sourceBytes, extendedTypes);
-        return extendedTypes;
-    }
-
-    /**
-     * Extracts and collects interface names from a class-like declaration.
-     * Checks both "interfaces" and "interface" field names to handle grammar variations.
-     * Uses {@code collectTypeIdentifiers} to recursively extract type names.
-     *
-     * @param declarationNode class or record declaration node
-     * @param sourceBytes     UTF-8 bytes of full source text
-     * @return list of interface type names; empty list if none found
-     */
-    private List<String> collectImplementedTypes(TSNode declarationNode, byte[] sourceBytes) {
-        List<String> implementedTypes = new ArrayList<>();
-        // Extract the interface nodes
-        TSNode interfacesNode = declarationNode.getChildByFieldName("interfaces");
-        if (!isValidNode(interfacesNode)) {
-            interfacesNode = declarationNode.getChildByFieldName("interface");
-        }
-        if (!isValidNode(interfacesNode)) {
-            return implementedTypes;
-        }
-
-        collectTypeIdentifiers(interfacesNode, sourceBytes, implementedTypes);
-        return implementedTypes;
-    }
-
-    /**
-     * Recursively extracts type-like identifiers from a node and its children.
-     * Recognizes and collects three common type patterns:
-     * 1. {@code type_identifier} - simple type names (e.g., Service, String)
-     * 2. {@code scoped_type_identifier} - qualified names (e.g., com.acme.Plugin)
-     * 3. {@code generic_type} - parameterized types (e.g., List&lt;String&gt;)
-     *
-     * @param node        the node to scan for type identifiers
-     * @param sourceBytes UTF-8 bytes of full source text
-     * @param output      list to accumulate discovered type names
-     */
-    private void collectTypeIdentifiers(TSNode node, byte[] sourceBytes, List<String> output) {
-        if (!isValidNode(node)) {
-            return;
-        }
-        // Extract Node Type
-        String nodeType = node.getType();
-        // A simple type name with no package/class prefix -> Service, Runnable, String
-        if ("type_identifier".equals(nodeType)
-                // A qualified type name with dots (.), usually package or outer-class scope ->
-                // Service.Add(), com.acme.Plugin
-                || "scoped_type_identifier".equals(nodeType)
-                // A type with type arguments -> List<String>, Map<String, Integer>, MyType<Foo>
-                || "generic_type".equals(nodeType)) {
-            String typeName = getNodeText(node, sourceBytes);
-            if (!typeName.isBlank()) {
-                output.add(typeName);
-            }
-            return;
-        }
-
-        for (int i = 0; i < node.getChildCount(); i++) {
-            collectTypeIdentifiers(node.getChild(i), sourceBytes, output);
-        }
-    }
-
-    /**
-     * Reads a method's declared return type from its {@code type} field.
-     * Returns {@code null} when the declaration has no readable type or when the
-     * type is {@code void}.
-     *
-     * @param methodDeclaration method declaration node to inspect
-     * @param sourceBytes       UTF-8 bytes of full source text
-     * @return declared non-void return type, or {@code null} when unavailable
-     */
-    private String getMethodReturnType(TSNode methodDeclaration, byte[] sourceBytes) {
-        TSNode returnTypeNode = methodDeclaration.getChildByFieldName("type");
-        if (!isValidNode(returnTypeNode)) {
-            return null;
-        }
-        String returnType = getNodeText(returnTypeNode, sourceBytes);
-        if (returnType.isBlank() || "void".equals(returnType)) {
-            return null;
-        }
-        return returnType;
-    }
 
     /**
      * Compares two nodes by source byte range and node type.
@@ -562,7 +357,7 @@ public class IndexEngineService {
 //        Add the initial call to the resolvedCalls
         resolvedCalls.add(firstCall);
 
-        String nextReceiverType = knownMethodReturnTypes.get(firstCall);
+        String nextReceiverType = metadataScanner.getKnownMethodReturnType(firstCall);
         String previousMethod = firstMethod;
 
 //        Loop through the other methods and apply the resolution type
@@ -573,7 +368,7 @@ public class IndexEngineService {
                     : previousMethod + "." + methodName;
 
             resolvedCalls.add(call);
-            nextReceiverType = knownMethodReturnTypes.get(call);
+            nextReceiverType = metadataScanner.getKnownMethodReturnType(call);
             previousMethod = methodName;
         }
 
@@ -617,14 +412,6 @@ public class IndexEngineService {
                 if (currentClass.isBlank()) {
                     currentClass = null;
                 }
-
-                // Add the node to the graph
-                if (currentClass != null) {
-                    List<String> implementedTypes = collectImplementedTypes(node, sourceBytes);
-                    List<String> extendedTypes = collectExtendedTypes(node, sourceBytes);
-                    this.graphInMemory.addClassNode(currentClass, type, implementedTypes, extendedTypes);
-//                    System.out.println("Found class: " + currentClass + " in file: " + path);
-                }
             }
         }
 
@@ -639,16 +426,10 @@ public class IndexEngineService {
                     methodName = null;
                 }
                 if (methodName != null) {
-                    currentMethodId = this.graphInMemory.addMethodNode(methodName, currentClass);
-                    knownMethodIds.add(currentMethodId);
-                    String returnType = getMethodReturnType(node, sourceBytes);
-                    if (returnType != null) {
-                        knownMethodReturnTypes.put(currentMethodId, returnType);
-                    }
+                    currentMethodId = currentClass + "." + methodName;
                     // Add method parameters to visibleTypes(some elements can be declared as
                     // parameters)
                     collectMethodParameters(node, sourceBytes, currentScope);
-//                    System.out.println("Found method: " + methodName + " in class: " + currentClass);
                 }
             }
         }
@@ -719,7 +500,7 @@ public class IndexEngineService {
      * @param path   Java source file path
      * @param parser configured tree-sitter Java parser
      */
-    private void parseFile(Path path, TSParser parser) {
+    private void parseFile(Path path, TSParser parser, IndexingStage stage) {
         try {
             // Read the content in the file
             String fileContents = Files.readString(path);
@@ -727,6 +508,11 @@ public class IndexEngineService {
             // Parse the file to a tree
             TSTree tsTree = parser.parseString(null, fileContents);
             TSNode rootNode = tsTree.getRootNode();
+            if(stage == IndexingStage.SCANNING){
+                this.metadataScanner.scanRepository(String.valueOf(path), rootNode, fileBytes, this.graphInMemory);
+                return;
+            }
+
             // Go through the tree to extract symbols
             walkTree(rootNode, path, fileContents, fileBytes, null, null, new HashMap<>());
         } catch (IOException | TSException e) {
@@ -746,13 +532,21 @@ public class IndexEngineService {
     public void parseRepository(Path repoPath) throws IOException {
         TSParser parser = new TSParser();
         parser.setLanguage(new TreeSitterJava());
+        List<Path> javaFiles = new ArrayList<>();
         // Parse the files in the repository one by one
         try (var stream = Files.walk(repoPath)) {
-            stream
-                    .filter(Files::isRegularFile)
+            stream.filter(Files::isRegularFile)
                     .filter(path -> path.toString().endsWith(".java"))
-                    .forEach((path) -> parseFile(path, parser));
+                    .forEach(javaFiles::add);
         }
+        for (Path javaFile : javaFiles) {
+            parseFile(javaFile, parser, IndexingStage.SCANNING);
+        }
+
+        for (Path javaFile : javaFiles) {
+            parseFile(javaFile, parser, IndexingStage.BUILDING);
+        }
+
     }
 
     /**
@@ -772,8 +566,7 @@ public class IndexEngineService {
             System.out.println("Starting indexing for: " + repo.get().toString());
             // Clear the graph before indexing to ensure no previous nodes exist
             this.graphInMemory.resetGraph();
-            this.knownMethodIds.clear();
-            this.knownMethodReturnTypes.clear();
+            this.metadataScanner.reset();
             // Start indexing the repository
             parseRepository(repo.get());
             this.graphInMemory.writeToJson();
@@ -784,4 +577,5 @@ public class IndexEngineService {
         return Optional.empty();
 
     }
+
 }
