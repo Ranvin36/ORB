@@ -20,6 +20,12 @@ public class MetadataScanner {
     protected Map<String, FileMetadata> fileMetadataMap;
     private final Map<String, String> knownMethodReturnTypes;
     protected Set<String> knownMethodIds;
+    /**
+     * Stores discovered variables (fields and local variables) keyed by scope.
+     * Key format: "ClassName" for fields, "ClassName.methodName" for locals.
+     * Value: map of variable name to declared type.
+     */
+    private final Map<String, Map<String, String>> discoveredVariables;
 
     /**
      * Creates a scanner with an empty metadata map.
@@ -28,6 +34,7 @@ public class MetadataScanner {
         this.fileMetadataMap = new HashMap<>();
         this.knownMethodIds = new HashSet<>();
         this.knownMethodReturnTypes = new HashMap<>();
+        this.discoveredVariables = new HashMap<>();
     }
 
     /** Clears all pass-1 scanner state before a new indexing run. */
@@ -35,6 +42,7 @@ public class MetadataScanner {
         this.fileMetadataMap.clear();
         this.knownMethodIds.clear();
         this.knownMethodReturnTypes.clear();
+        this.discoveredVariables.clear();
     }
 
     /**
@@ -65,6 +73,28 @@ public class MetadataScanner {
      */
     public FileMetadata getFileMetadata(String filePath) {
         return this.fileMetadataMap.get(filePath);
+    }
+
+    /**
+     * Returns the discovered variable type for a given scope.
+     *
+     * @param scope   scope key (e.g., "ClassName" for fields or "ClassName.methodName" for locals)
+     * @param varName variable name to look up
+     * @return variable type when known; otherwise {@code null}
+     */
+    public String getDiscoveredVariableType(String scope, String varName) {
+        Map<String, String> scopeVars = discoveredVariables.get(scope);
+        return scopeVars != null ? scopeVars.get(varName) : null;
+    }
+
+    /**
+     * Returns all discovered variables for a given scope.
+     *
+     * @param scope scope key (e.g., "ClassName" for fields or "ClassName.methodName" for locals)
+     * @return map of variable name to type; empty map if scope not found
+     */
+    public Map<String, String> getDiscoveredVariablesForScope(String scope) {
+        return discoveredVariables.getOrDefault(scope, new HashMap<>());
     }
 
     /**
@@ -270,6 +300,53 @@ public class MetadataScanner {
     }
 
     /**
+     * Collects field or local variable declarations and stores them keyed by scope.
+     * Extracts the type and variable names, then stores as name -> type mappings.
+     *
+     * @param declarationNode field or local variable declaration node
+     * @param sourceBytes     UTF-8 bytes of the source file
+     * @param scope           scope key (e.g., "ClassName" or "ClassName.methodName")
+     */
+    private void collectVariableDeclarations(TSNode declarationNode, byte[] sourceBytes, String scope) {
+        if (scope == null || scope.isBlank() || !isValidNode(declarationNode)) {
+            return;
+        }
+
+        // Extract the type node
+        TSNode typeNode = TreeNodeUtils.getTypeNode(declarationNode);
+        if (!isValidNode(typeNode)) {
+            return;
+        }
+
+        String declaredType = getNodeText(typeNode, sourceBytes);
+        if (declaredType.isBlank()) {
+            return;
+        }
+
+        // Iterate through child nodes to find variable declarators
+        for (int i = 0; i < declarationNode.getChildCount(); i++) {
+            TSNode child = declarationNode.getChild(i);
+            if (!isValidNode(child) || !"variable_declarator".equals(child.getType())) {
+                continue;
+            }
+
+            // Extract variable name
+            TSNode nameNode = TreeNodeUtils.getIdentifierNode(child, "name");
+            if (nameNode == null) {
+                continue;
+            }
+
+            String variableName = getNodeText(nameNode, sourceBytes);
+            if (!variableName.isBlank()) {
+                // Store in discovered variables map keyed by scope
+                discoveredVariables
+                    .computeIfAbsent(scope, k -> new HashMap<>())
+                    .put(variableName, declaredType);
+            }
+        }
+    }
+
+    /**
      * Traverses the syntax tree and registers pass-1 declarations only.
      * This method intentionally captures class and method signatures, while
      * invocation/body-level relationship building is deferred to pass 2.
@@ -280,6 +357,20 @@ public class MetadataScanner {
      * @param graphInMemory graph store that receives class and method nodes
      */
     public void scanTreeForDeclarations(TSNode node, byte[] sourceBytes, String currentClass, GraphInMemory graphInMemory) {
+        scanTreeForDeclarationsInternal(node, sourceBytes, currentClass, null, graphInMemory);
+    }
+
+    /**
+     * Internal recursive method that walks the tree collecting declarations and variables.
+     * Maintains currentMethodId to properly scope local variables.
+     *
+     * @param node              current AST node
+     * @param sourceBytes       UTF-8 bytes of the source file
+     * @param currentClass      active class context
+     * @param currentMethodId   active method context (ClassName.methodName for locals)
+     * @param graphInMemory     graph store
+     */
+    private void scanTreeForDeclarationsInternal(TSNode node, byte[] sourceBytes, String currentClass, String currentMethodId, GraphInMemory graphInMemory) {
         if(!isValidNode(node)) {
             return;
         }
@@ -305,18 +396,14 @@ public class MetadataScanner {
         }
 
         // If a method is declared in the current node, extract its name and add it to
-        // the graph. Update the current method context for nested nodes. Also collect
-        // method parameters into the visible type map.
+        // the graph. Update the current method context for nested nodes.
         if ("method_declaration".equals(type)) {
             TSNode nodeName = node.getChildByFieldName("name");
 
             if (isValidNode(nodeName) && currentClass != null) {
                 String methodName = getNodeText(nodeName, sourceBytes);
-                if (methodName.isBlank()) {
-                    methodName = null;
-                }
-                if (methodName != null) {
-                    String currentMethodId = graphInMemory.addMethodNode(methodName, currentClass);
+                if (!methodName.isBlank()) {
+                    currentMethodId = graphInMemory.addMethodNode(methodName, currentClass);
                     knownMethodIds.add(currentMethodId);
                     String returnType = getMethodReturnType(node, sourceBytes);
                     if (returnType != null) {
@@ -326,8 +413,18 @@ public class MetadataScanner {
             }
         }
 
+        // Collect field declarations at class level
+        if ("field_declaration".equals(type) && currentClass != null) {
+            collectVariableDeclarations(node, sourceBytes, currentClass);
+        }
+
+        // Collect local variable declarations at method level
+        if ("local_variable_declaration".equals(type) && currentMethodId != null) {
+            collectVariableDeclarations(node, sourceBytes, currentMethodId);
+        }
+
         for (int i = 0; i < node.getChildCount(); i++) {
-            scanTreeForDeclarations(node.getChild(i), sourceBytes, currentClass, graphInMemory);
+            scanTreeForDeclarationsInternal(node.getChild(i), sourceBytes, currentClass, currentMethodId, graphInMemory);
         }
     }
 
