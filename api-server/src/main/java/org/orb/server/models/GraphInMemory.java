@@ -12,15 +12,19 @@ import java.util.*;
  * Stores extracted classes and methods in memory and exports them to JSON.
  */
 public class GraphInMemory {
-    private Map<String, ClassNode> classes = new HashMap<String, ClassNode>();
-    private Map<String, MethodNode> methods = new HashMap<String, MethodNode>();
+    private final Map<String, ClassNode> classes = new HashMap<>();
+    private final Map<String, MethodNode> methods = new HashMap<>();
+    private final List<CallEdge> callEdges = new ArrayList<>();
+    private final Set<String> callEdgeKeys = new HashSet<>();
 
     /**
-     * Clears all class and method nodes from the in-memory graph.
+     * Clears all class, method, and call edge nodes from the in-memory graph.
      */
     public void resetGraph() {
         classes.clear();
         methods.clear();
+        callEdges.clear();
+        callEdgeKeys.clear();
     }
 
     /**
@@ -57,7 +61,7 @@ public class GraphInMemory {
             if (extendedClasses == null || extendedClasses.isEmpty()) {
                 classNode.setParentClass("");
             } else {
-                classNode.setParentClass(extendedClasses.get(extendedClasses.size() - 1));
+                classNode.setParentClass(extendedClasses.getLast());
             }
             return classNode;
         });
@@ -82,38 +86,47 @@ public class GraphInMemory {
     }
 
     /**
-     * Adds a method invocation to the given method node.
-     * Creates a placeholder method node when the id is not present.
+     * Adds a directed method call edge from one method id to another.
      *
-     * @param methodId   source method id
-     * @param methodCall invocation text (for example {@code service.add})
+     * @param methodId   caller method id
+     * @param methodCall callee method id
      */
     public void addMethodCall(String methodId, String methodCall) {
-        MethodNode methodNode = methods.computeIfAbsent(methodId, node -> {
-            MethodNode methodNode1 = new MethodNode();
-            methodNode1.setId(methodId);
-            return methodNode1;
+        if (methodId == null || methodId.isBlank() || methodCall == null || methodCall.isBlank()) {
+            return;
+        }
+
+        methods.computeIfAbsent(methodId, name -> {
+            MethodNode methodNode = new MethodNode();
+            methodNode.setId(methodId);
+            return methodNode;
         });
-       List<String> calls = methodNode.getCalls();
-       if(calls.contains(methodCall)){
-           return;
-       }
-       calls.add(methodCall);
-       methodNode.setCalls(calls);
+
+        String edgeKey = methodId + "->" + methodCall;
+        if (!callEdgeKeys.add(edgeKey)) {
+            return;
+        }
+
+        CallEdge callEdge = new CallEdge();
+        callEdge.setFrom(methodId);
+        callEdge.setTo(methodCall);
+        callEdges.add(callEdge);
     }
 
     /**
      * Serializes the in-memory graph and writes it to {@code graph.json}.
-     * Also prints the generated JSON to standard output.
      */
     public void writeToJson() throws IOException {
-        Map<String, Object> combinedGraphInMemory = new HashMap<>();
-        combinedGraphInMemory.put("methods", methods);
-        combinedGraphInMemory.put("classes", classes);
+        Map<String, Object> nodes = new LinkedHashMap<>();
+        nodes.put("classes", classes);
+        nodes.put("methods", methods);
+
+        Map<String, Object> combinedGraphInMemory = new LinkedHashMap<>();
+        combinedGraphInMemory.put("nodes", nodes);
+        combinedGraphInMemory.put("edges", callEdges);
+
         ObjectMapper objectMapper = new ObjectMapper();
-        String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(combinedGraphInMemory);
-        objectMapper.writerWithDefaultPrettyPrinter()
-                .writeValue(new File("graph.json"), combinedGraphInMemory);
+        objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File("graph.json"), combinedGraphInMemory);
     }
 
 }
