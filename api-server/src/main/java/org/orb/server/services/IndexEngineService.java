@@ -149,7 +149,8 @@ public class IndexEngineService {
             this.metadataScanner.reset();
             // Start indexing the repository
             parseRepository(repo.get());
-            this.graphInMemory.pushToNeo4J();
+//            this.graphInMemory.pushToNeo4J();
+            this.graphInMemory.writeToJson();
             return repo;
         } else {
             System.out.println("Cannot start indexing; repository not found: " + repoName);

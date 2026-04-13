@@ -2,6 +2,7 @@ package org.orb.server.services.scanning;
 
 import org.orb.server.models.GraphInMemory;
 import org.treesitter.TSNode;
+import org.treesitter.TSPoint;
 
 import static org.orb.server.services.scanning.TreeNodeUtils.getNodeText;
 import static org.orb.server.services.scanning.TreeNodeUtils.isValidNode;
@@ -112,7 +113,7 @@ public class MetadataScanner {
         if (pkgNImports != null && filePath != null) {
             this.fileMetadataMap.put(filePath, pkgNImports);
         }
-        scanTreeForDeclarations(rootNode, sourceBytes, null, graphInMemory);
+        scanTreeForDeclarations(filePath, rootNode, sourceBytes, null, graphInMemory);
     }
 
 
@@ -356,8 +357,8 @@ public class MetadataScanner {
      * @param currentClass  active class context while traversing nested nodes
      * @param graphInMemory graph store that receives class and method nodes
      */
-    public void scanTreeForDeclarations(TSNode node, byte[] sourceBytes, String currentClass, GraphInMemory graphInMemory) {
-        scanTreeForDeclarationsInternal(node, sourceBytes, currentClass, null, graphInMemory);
+    public void scanTreeForDeclarations(String filePath, TSNode node, byte[] sourceBytes, String currentClass, GraphInMemory graphInMemory) {
+        scanTreeForDeclarationsInternal(filePath, node, sourceBytes, currentClass, null, graphInMemory);
     }
 
     /**
@@ -370,7 +371,7 @@ public class MetadataScanner {
      * @param currentMethodId   active method context (ClassName.methodName for locals)
      * @param graphInMemory     graph store
      */
-    private void scanTreeForDeclarationsInternal(TSNode node, byte[] sourceBytes, String currentClass, String currentMethodId, GraphInMemory graphInMemory) {
+    private void scanTreeForDeclarationsInternal(String filePath, TSNode node, byte[] sourceBytes, String currentClass, String currentMethodId, GraphInMemory graphInMemory) {
         if(!isValidNode(node)) {
             return;
         }
@@ -392,18 +393,19 @@ public class MetadataScanner {
                 extendedTypes = collectExtendedTypes(node, sourceBytes);
             }
 
-            graphInMemory.addClassNode(currentClass, type, implementedTypes, extendedTypes);
+            graphInMemory.addClassNode(filePath, currentClass, type, implementedTypes, extendedTypes);
         }
 
         // If a method is declared in the current node, extract its name and add it to
         // the graph. Update the current method context for nested nodes.
         if ("method_declaration".equals(type)) {
             TSNode nodeName = node.getChildByFieldName("name");
-
+            int startLine = node.getStartPoint().getRow() + 1;
+            int endLine = node.getEndPoint().getRow() + 1;
             if (isValidNode(nodeName) && currentClass != null) {
                 String methodName = getNodeText(nodeName, sourceBytes);
                 if (!methodName.isBlank()) {
-                    currentMethodId = graphInMemory.addMethodNode(methodName, currentClass);
+                    currentMethodId = graphInMemory.addMethodNode(startLine, endLine, filePath, methodName, currentClass);
                     knownMethodIds.add(currentMethodId);
                     String returnType = getMethodReturnType(node, sourceBytes);
                     if (returnType != null) {
@@ -424,7 +426,7 @@ public class MetadataScanner {
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
-            scanTreeForDeclarationsInternal(node.getChild(i), sourceBytes, currentClass, currentMethodId, graphInMemory);
+            scanTreeForDeclarationsInternal(filePath, node.getChild(i), sourceBytes, currentClass, currentMethodId, graphInMemory);
         }
     }
 

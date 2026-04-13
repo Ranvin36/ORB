@@ -20,6 +20,9 @@ public class ClassNode {
     private String type;
     @Getter
     @Setter
+    private String filePath;
+    @Getter
+    @Setter
     private String parentClass;
     @Getter
     @Setter

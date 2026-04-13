@@ -54,12 +54,13 @@ public class GraphInMemory {
      *
      * @param className class name to index
      */
-    public void addClassNode(String className, String type, List<String> implementedInterfaces,
+    public void addClassNode(String filePath, String className, String type, List<String> implementedInterfaces,
             List<String> extendedClasses) {
         classes.compute(className, (nodeName, existingNode) -> {
             ClassNode classNode = existingNode == null ? new ClassNode() : existingNode;
             classNode.setName(className);
             classNode.setType(type);
+            classNode.setFilePath(filePath);
             if (implementedInterfaces == null || implementedInterfaces.isEmpty()) {
                 classNode.setImplement(new ArrayList<>());
             } else {
@@ -81,11 +82,14 @@ public class GraphInMemory {
      * @param className  owning class name
      * @return resolved method id used as map key
      */
-    public String addMethodNode(String methodName, String className) {
+    public String addMethodNode(int startLine, int endLine, String filePath, String methodName, String className) {
         String methodId = buildMethodId(className, methodName);
         methods.computeIfAbsent(methodId, name -> {
             MethodNode methodNode = new MethodNode();
             methodNode.setClassName(className);
+            methodNode.setFilePath(filePath);
+            methodNode.setStartLine(startLine);
+            methodNode.setEndLine(endLine);
             methodNode.setId(methodId);
             return methodNode;
         });
@@ -140,9 +144,14 @@ public class GraphInMemory {
     public void pushToNeo4J() {
         List<Map<String, Object>> classRows = new ArrayList<>();
         List<Map<String, Object>> inheritanceRows = new ArrayList<>();
+        List<Map<String, Object>> implementationRows = new ArrayList<>();
+        Set<String> existingNodeIds = new HashSet<>();
+
+        // First pass: create rows for classes
         for (ClassNode classNode : classes.values()) {
             String className = classNode.getName() == null ? "" : classNode.getName();
             String parentClass = classNode.getParentClass() == null ? "" : classNode.getParentClass();
+
             classRows.add(Map.of(
                     "id", className,
                     "properties", Map.of(
@@ -153,12 +162,41 @@ public class GraphInMemory {
                             "implements", classNode.getImplement() == null ? List.of() : classNode.getImplement()
                     )
             ));
+            existingNodeIds.add(className);
 
             if (!className.isBlank() && !parentClass.isBlank()) {
                 inheritanceRows.add(Map.of(
                         "from", className,
                         "to", parentClass,
                         "properties", Map.of("type", "EXTENDS")
+                ));
+            }
+        }
+
+        // Second pass: ensure interface nodes exist and collect IMPLEMENTS edges
+        for (ClassNode classNode : classes.values()) {
+            String className = classNode.getName() == null ? "" : classNode.getName();
+            List<String> implList = classNode.getImplement();
+            if (implList == null) continue;
+            for (String iface : implList) {
+                if (iface == null || iface.isBlank()) continue;
+                // If interface node not already represented, add it as an interface kind
+                if (existingNodeIds.add(iface)) {
+                    classRows.add(Map.of(
+                            "id", iface,
+                            "properties", Map.of(
+                                    "kind", "interface",
+                                    "name", iface,
+                                    "type", "",
+                                    "parentClass", "",
+                                    "implements", List.of()
+                            )
+                    ));
+                }
+                implementationRows.add(Map.of(
+                        "from", className,
+                        "to", iface,
+                        "properties", Map.of("type", "IMPLEMENTS")
                 ));
             }
         }
@@ -221,8 +259,21 @@ public class GraphInMemory {
                 });
             }
 
+            // 4. Add IMPLEMENTS edges (interfaces)
+            if (!implementationRows.isEmpty()) {
+                session.executeWrite(tx -> {
+                    String implQuery =
+                            "UNWIND $edges AS edge " +
+                                    "MERGE (implClass:Class {id: edge.from}) " +
+                                    "MERGE (iface:Class {id: edge.to}) " +
+                                    "MERGE (implClass)-[r:IMPLEMENTS]->(iface) " +
+                                    "SET r += edge.properties";
+                    return tx.run(implQuery, Map.of("edges", implementationRows)).consume();
+                });
+            }
 
-            // 4. Push the edges
+
+            // 5. Push the edges
             session.executeWrite(tx -> {
                 String edgeQuery =
                         "UNWIND $edges AS edge " +
