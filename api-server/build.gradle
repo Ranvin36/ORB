@@ -30,6 +30,7 @@ dependencies {
     implementation 'io.github.bonede:tree-sitter:0.26.6'
     implementation 'io.github.bonede:tree-sitter-java:0.23.5'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'org.neo4j.driver:neo4j-java-driver:5.19.0'
     compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'

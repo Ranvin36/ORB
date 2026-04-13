@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
+import org.neo4j.driver.Driver;
 import org.orb.server.models.GraphInMemory;
 import org.orb.server.services.scanning.MetadataScanner;
 import org.springframework.stereotype.Service;
@@ -24,8 +25,8 @@ public class IndexEngineService {
     /**
      * Creates a new indexing service with an empty in-memory graph.
      */
-    public IndexEngineService() {
-        this.graphInMemory = new GraphInMemory();
+    public IndexEngineService(Driver driver) {
+        this.graphInMemory = new GraphInMemory(driver);
         this.metadataScanner = new MetadataScanner();
     }
 
@@ -148,7 +149,7 @@ public class IndexEngineService {
             this.metadataScanner.reset();
             // Start indexing the repository
             parseRepository(repo.get());
-            this.graphInMemory.writeToJson();
+            this.graphInMemory.pushToNeo4J();
             return repo;
         } else {
             System.out.println("Cannot start indexing; repository not found: " + repoName);
