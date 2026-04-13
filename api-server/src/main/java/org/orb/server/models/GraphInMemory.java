@@ -2,6 +2,8 @@ package org.orb.server.models;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.Session;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,10 +14,15 @@ import java.util.*;
  * Stores extracted classes and methods in memory and exports them to JSON.
  */
 public class GraphInMemory {
+    private final Driver driver;
     private final Map<String, ClassNode> classes = new HashMap<>();
     private final Map<String, MethodNode> methods = new HashMap<>();
     private final List<CallEdge> callEdges = new ArrayList<>();
     private final Set<String> callEdgeKeys = new HashSet<>();
+
+    public GraphInMemory(Driver driver) {
+        this.driver = driver;
+    }
 
     /**
      * Clears all class, method, and call edge nodes from the in-memory graph.
@@ -129,4 +136,105 @@ public class GraphInMemory {
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File("graph.json"), combinedGraphInMemory);
     }
 
+
+    public void pushToNeo4J() {
+        List<Map<String, Object>> classRows = new ArrayList<>();
+        List<Map<String, Object>> inheritanceRows = new ArrayList<>();
+        for (ClassNode classNode : classes.values()) {
+            String className = classNode.getName() == null ? "" : classNode.getName();
+            String parentClass = classNode.getParentClass() == null ? "" : classNode.getParentClass();
+            classRows.add(Map.of(
+                    "id", className,
+                    "properties", Map.of(
+                            "kind", "class",
+                            "name", className,
+                            "type", classNode.getType() == null ? "" : classNode.getType(),
+                            "parentClass", parentClass,
+                            "implements", classNode.getImplement() == null ? List.of() : classNode.getImplement()
+                    )
+            ));
+
+            if (!className.isBlank() && !parentClass.isBlank()) {
+                inheritanceRows.add(Map.of(
+                        "from", className,
+                        "to", parentClass,
+                        "properties", Map.of("type", "EXTENDS")
+                ));
+            }
+        }
+
+        List<Map<String, Object>> methodRows = new ArrayList<>();
+        for (MethodNode methodNode : methods.values()) {
+            methodRows.add(Map.of(
+                    "id", methodNode.getId(),
+                    "classId", methodNode.getClassName() == null ? "" : methodNode.getClassName(),
+                    "properties", Map.of(
+                            "kind", "method",
+                            "id", methodNode.getId(),
+                            "className", methodNode.getClassName() == null ? "" : methodNode.getClassName()
+                    )
+            ));
+        }
+
+        List<Map<String, Object>> edges = new ArrayList<>();
+        for (CallEdge edge : callEdges) {
+            edges.add(Map.of(
+                    "from", edge.getFrom(),
+                    "to", edge.getTo(),
+                    "properties", Map.of("type", edge.getType() == null ? "calls" : edge.getType())
+            ));
+        }
+
+        try (Session session = driver.session()) {
+            // 1. Push classes to neo4j
+            session.executeWrite(tx -> {
+                String classQuery =
+                        "UNWIND $classes AS node " +
+                                "MERGE (n:Class {id: node.id}) " +
+                                "SET n += node.properties";
+                return tx.run(classQuery, Map.of("classes", classRows)).consume();
+            });
+
+            // 2. Push methods to neo4j & link them with classes
+            session.executeWrite(tx -> {
+                String methodQuery =
+                        "UNWIND $methods AS method " +
+                                "MERGE (m:Method {id: method.id}) " +
+                                "SET m += method.properties " +
+                                "WITH m, method " +
+                                "WHERE method.classId <> '' " +
+                                "MATCH (c:Class {id: method.classId}) " +
+                                "MERGE (c)-[:HAS_METHOD]->(m)";
+                return tx.run(methodQuery, Map.of("methods", methodRows)).consume();
+            });
+
+            // 3. Add inheritance edge
+            if (!inheritanceRows.isEmpty()) {
+                session.executeWrite(tx -> {
+                    String inheritanceQuery =
+                            "UNWIND $edges AS edge " +
+                                    "MERGE (child:Class {id: edge.from}) " +
+                                    "MERGE (parent:Class {id: edge.to}) " +
+                                    "MERGE (child)-[r:EXTENDS]->(parent) " +
+                                    "SET r += edge.properties";
+                    return tx.run(inheritanceQuery, Map.of("edges", inheritanceRows)).consume();
+                });
+            }
+
+
+            // 4. Push the edges
+            session.executeWrite(tx -> {
+                String edgeQuery =
+                        "UNWIND $edges AS edge " +
+                                "MERGE (m1:Method {id: edge.from}) " +
+                                "MERGE (m2:Method {id: edge.to}) " +
+                                "MERGE (m1)-[r:CALLS]->(m2) " +
+                                "SET r += edge.properties";
+                return tx.run(edgeQuery, Map.of("edges", edges)).consume();
+            });
+        }
+        catch (Exception e) {
+            System.err.println("Error pushing graph to Neo4J: " + e.getMessage());
+        }
+    }
 }
