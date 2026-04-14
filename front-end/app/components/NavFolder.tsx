@@ -13,7 +13,7 @@ export default function NavFolder({
 	href,
 	label,
 	Icon,
-	className = "my-[13px] flex items-center gap-2 font-extralight text-[18px]",
+	className = "my-[13px] flex items-center gap-2 font-extralight text-[18px] px-2",
 	iconClassName = "h-5 w-5",
 }: NavFolderProps) {
 	return (
