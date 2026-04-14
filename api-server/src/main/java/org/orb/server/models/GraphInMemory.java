@@ -157,6 +157,7 @@ public class GraphInMemory {
                     "properties", Map.of(
                             "kind", "class",
                             "name", className,
+                            "filePath", classNode.getFilePath() == null ? "" : classNode.getFilePath(),
                             "type", classNode.getType() == null ? "" : classNode.getType(),
                             "parentClass", parentClass,
                             "implements", classNode.getImplement() == null ? List.of() : classNode.getImplement()
@@ -187,6 +188,7 @@ public class GraphInMemory {
                             "properties", Map.of(
                                     "kind", "interface",
                                     "name", iface,
+                                    "filePath", "",
                                     "type", "",
                                     "parentClass", "",
                                     "implements", List.of()
@@ -209,7 +211,10 @@ public class GraphInMemory {
                     "properties", Map.of(
                             "kind", "method",
                             "id", methodNode.getId(),
-                            "className", methodNode.getClassName() == null ? "" : methodNode.getClassName()
+                            "className", methodNode.getClassName() == null ? "" : methodNode.getClassName(),
+                            "filePath", methodNode.getFilePath() == null ? "" : methodNode.getFilePath(),
+                            "startLine", methodNode.getStartLine(),
+                            "endLine", methodNode.getEndLine()
                     )
             ));
         }
