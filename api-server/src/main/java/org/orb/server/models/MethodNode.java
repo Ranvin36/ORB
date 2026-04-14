@@ -13,6 +13,15 @@ class MethodNode {
     private String id;
     @Getter
     @Setter
+    private int startLine;
+    @Getter
+    @Setter
+    private int endLine;
+    @Getter
+    @Setter
     private String className;
+    @Getter
+    @Setter
+    private String filePath;
 }
 

@@ -29,24 +29,94 @@ class Neo4jQueryRequest(BaseModel):
 class LlmQueryRequest(BaseModel):
     message: str
 
-def talk_to_gpt(message: str) -> str:
-    res = openai_client.chat.completions.create(
-        model="gpt-4.1-nano",
-        messages=[{"role": "user", "content": message}]
-    )
-    return res.choices[0].message.content
+class CodeFetcher:
+    @staticmethod
+    def get_code_snippet(file_path: str, start_line: int, end_line: int) -> str:
+        """
+        Reads a specific line range from a local file to retrieve a code snippet.
+        """
+        try:
+            # Handle Windows paths if running on Linux, or vice versa
+            # This is a simple replacement, you might need more robust path handling
+            normalized_path = file_path.replace('\\', '/')
+            
+            # If the path is absolute but from a different OS, you might need to map it
+            # e.g., if "C:/Users/..." is stored but you are on Linux
+            if ":" in normalized_path and not os.path.isabs(normalized_path):
+                 # This is a heuristic for Windows absolute paths on Linux
+                 pass
 
+            if not os.path.exists(normalized_path):
+                return f"Error: File not found at {normalized_path}"
+                
+            with open(normalized_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+                # Adjust for 1-based indexing from Neo4j to 0-based for Python lists
+                start_idx = max(0, start_line - 1)
+                end_idx = min(len(lines), end_line)
+                snippet_lines = lines[start_idx:end_idx]
+                return ''.join(snippet_lines)
+        except Exception as e:
+            return f"Error reading file: {str(e)}"
+
+
+def _get_row_value(row: dict[str, Any], *candidates: str) -> Any:
+    for key in candidates:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
+
+
+def _extract_code_location(row: dict[str, Any]) -> tuple[Any, Any, Any]:
+    path = _get_row_value(row, "filePath", "path")
+    start_line = _get_row_value(row, "startLine", "start_line")
+    end_line = _get_row_value(row, "endLine", "end_line")
+
+    # Fallback for Neo4j column names like "m.filePath" or "c.startLine".
+    if path is None:
+        for key, value in row.items():
+            if key.endswith(".filePath") and value is not None:
+                path = value
+                break
+    if start_line is None:
+        for key, value in row.items():
+            if (key.endswith(".startLine") or key.endswith(".start_line")) and value is not None:
+                start_line = value
+                break
+    if end_line is None:
+        for key, value in row.items():
+            if (key.endswith(".endLine") or key.endswith(".end_line")) and value is not None:
+                end_line = value
+                break
+
+    return path, start_line, end_line
 
 def talk_to_gpt_with_neo4j_tool(message: str) -> str:
     schema_context = """
     ### Node Labels and Properties:
-    (:Class {name: string, type: string, parentClass: string})
-    (:Method {id: string, className: string, kind: string})
+    (:Class {name: string, type: string, parentClass: string, filePath: string})
+    (:Method {id: string, className: string, kind: string, startLine: int, endLine: int, filePath: string})
 
     ### Relationship Types:
     (:Method)-[:CALLS]->(:Method)
     (:Class)-[:EXTENDS]->(:Class)
+    (:Class)-[:IMPLEMENTS]->(:Class)
     (:Class)-[:HAS_METHOD]->(:Method)
+
+    ### Important:
+    When you need to explain code, ALWAYS alias your Cypher RETURN fields exactly as:
+    filePath, startLine, endLine
+
+    ### CRITICAL QUERYING INSTRUCTIONS:
+    1. **Case-Insensitive Matching**: Always use `toLower()` for string comparisons (e.g., `WHERE toLower(m.id) = toLower($methodId)`).
+    2. **Composite Names (e.g., 'Main.main')**: 
+       - The `id` property for a Method node is typically in the format "ClassName.methodName".
+       - To find a method like 'Main.main', you should query directly on the `id` property.
+    - Example: `MATCH (m:Method) WHERE toLower(m.id) = toLower('Main.main') RETURN m.filePath AS filePath, m.startLine AS startLine, m.endLine AS endLine`
+       - If you need to find methods within a specific class, you can combine `className` and a partial match on `id` or use `className` directly.
+         - Example: `MATCH (m:Method) WHERE toLower(m.className) = toLower('Main') AND toLower(m.id) CONTAINS toLower('.main') RETURN m.filePath AS filePath, m.startLine AS startLine, m.endLine AS endLine`
+     3. **Code Retrieval**: When explaining code, ALWAYS return aliased fields exactly as filePath, startLine, endLine.
+    
     """
     tools = [
         {
@@ -84,7 +154,7 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
             "role": "system",
             "content": f"You are a code intelligence assistant. Use the following graph schema to answer user queries:\n{schema_context}\n\nWorkflow: " + 
             "1. Query Neo4j for structural context. "
-            "2. The system will automatically fetch code snippets if you return 'path', 'start_line', and 'end_line'."
+            "2. The system will automatically fetch code snippets if you return 'filePath', 'startLine', and 'endLine' with exact aliases (e.g., m.filePath AS filePath)."
             "3. Explain the code using both graph and source context.",
         },
         {"role": "user", "content": message},
@@ -137,7 +207,27 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
 
             try:
                 rows = run_query(cypher, params, read_only=True)
-                tool_result = {"count": len(rows), "rows": rows}
+                enriched_rows = []
+                for row in rows:
+                    print(row)
+                    path, start_line, end_line = _extract_code_location(row)
+                    print(f"Processing row with path: {path}, start_line: {start_line}, end_line: {end_line}")
+
+                    if path and start_line is not None and end_line is not None:
+                        code_snippet = CodeFetcher.get_code_snippet(path, int(start_line), int(end_line))
+                        row['code_content'] = code_snippet
+
+                        print(f"Fetched code snippet for {path} lines {start_line}-{end_line}")
+
+                    enriched_rows.append(row)
+                if not enriched_rows:
+                    tool_result = {
+                        "count": 0, 
+                        "rows": [], 
+                        "hint": "No results found. Try a case-insensitive search with toLower() or use CONTAINS for partial matches."
+                    }
+                else:
+                    tool_result = {"count": len(enriched_rows), "rows": enriched_rows}
             except Exception as exc:
                 tool_result = {
                     "error": str(exc),
