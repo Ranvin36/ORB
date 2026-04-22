@@ -15,6 +15,89 @@ const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500", "700"],
 });
 
+const initialMessages = [
+  {
+    id: "seed-1",
+    role: "user",
+    content: "Show me the main entry points in this app.",
+  },
+  {
+    id: "seed-2",
+    role: "assistant",
+    content: "Here are a few likely spots:\n\n**app/page.tsx** for the chat UI\n**app/layout.tsx** for the root shell\n**app/components/NavFolder.tsx** for sidebar links",
+  },
+  {
+    id: "seed-3",
+    role: "user",
+    content: "What should I inspect next?",
+  },
+  {
+    id: "seed-4",
+    role: "assistant",
+    content: "Try the API constants, then trace the fetch path into the backend stream handler.",
+  },
+  {
+    id: "seed-5",
+    role: "user",
+    content: "Add more sample output so I can test scrolling.",
+  },
+  {
+    id: "seed-6",
+    role: "assistant",
+    content: "Sure. Keep sending prompts and watch the transcript grow beyond the viewport.",
+  },
+  {
+    id: "seed-7",
+    role: "user",
+    content: "Does the formatter handle bold text?",
+  },
+  {
+    id: "seed-8",
+    role: "assistant",
+    content: "Yes, it renders **bold spans** and preserves line breaks for streamed content.",
+  },
+  {
+    id: "seed-9",
+    role: "user",
+    content: "Can you point out where the streaming parser lives?",
+  },
+  {
+    id: "seed-10",
+    role: "assistant",
+    content: "It is handled in the page component itself, alongside the fetch loop that reads the response body chunk by chunk.",
+  },
+  {
+    id: "seed-11",
+    role: "user",
+    content: "What about the navigation layout?",
+  },
+  {
+    id: "seed-12",
+    role: "assistant",
+    content: "The sidebar is rendered on the left and keeps the app shell fixed while the chat area grows vertically.",
+  },
+  {
+    id: "seed-13",
+    role: "user",
+    content: "Give me one more long assistant message for overflow testing.",
+  },
+  {
+    id: "seed-14",
+    role: "assistant",
+    content: "Here is a longer response intended to push the viewport: inspect the message list, keep sending prompts, and verify that the latest assistant reply remains reachable after the transcript grows beyond the visible panel.",
+  },
+  {
+    id: "seed-15",
+    role: "user",
+    content: "Does the input stay visible when there are many messages?",
+  },
+  {
+    id: "seed-16",
+    role: "assistant",
+    content: "That is the behavior to check now: the fixed composer should remain anchored while the transcript becomes scrollable.",
+  },
+];
+
 function renderFormattedOutput(text: string) {
   return text.split("\n").map((line, lineIndex) => {
     if (line.length === 0) {
@@ -92,21 +175,18 @@ function extractStreamText(data: string) {
 }
 
 export default function Home() {
-  const [output, setOutput] = useState("");
   const [textInput, setTextInput] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<{ id: string; role: string; content: string }[]>(initialMessages);
 
   const handleAsk = async () => {
     const prompt = textInput.trim();
 
     if (!prompt) {
-      setOutput("Please enter a prompt first.");
       return;
     }
 
-    setOutput("");
     setIsAsking(true);
 
     try {
@@ -130,6 +210,24 @@ export default function Home() {
       }
       const decoder = new TextDecoder();
 
+      const userMsg = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: prompt,
+      };
+
+      const assistantId = crypto.randomUUID();
+
+      const assistantMsg = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+      };
+
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setTextInput("");
+
+
       while (true) {
         const { done, value } = await reader.read();
 
@@ -146,24 +244,41 @@ export default function Home() {
             const text = extractStreamText(data);
 
             if (text) {
-              setOutput((prev) => prev + text);
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantId
+                      ? { ...msg, content: msg.content + text }
+                      : msg
+                  )
+                );
             }
           } else if (line.trim()) {
-            setOutput((prev) => prev + normalizeStreamText(line));
+            setMessages((prev) => 
+              prev.map((msg) => 
+                msg.id === assistantId ? 
+                  { ...msg, content: msg.content + normalizeStreamText(line) } 
+                  : msg));
           }
         });
       }
     } catch (error) {
       console.error("Failed to ask Orb:", error);
-      setOutput("Could not reach Orb. Check that the backend is running and CORS is enabled for your frontend origin.");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "Could not reach Orb. Check that the backend is running and CORS is enabled for your frontend origin.",
+        },
+      ]);
     } finally {
       setIsAsking(false);
     }
   };
 
   return (
-    <div className="app-container flex h-screen w-full">
-        <div className="side-nav basis-[17%] p-[40px] bg-[#2F4BD8] [&_*]:text-white">
+    <div className="app-container flex w-full">
+        <div className="sticky top-0 h-screen side-nav basis-[17%] p-[40px] bg-[#2F4BD8] [&_*]:text-white">
           <div className="navbar-starter">
             <div className="logo px-2"> 
                <h1 className="font-bold text-[20px]">ORB</h1>
@@ -191,26 +306,34 @@ export default function Home() {
               </div>
           </div>
       </div>
-      <div className="py-[40px] px-[90px] flex justify-center relative basis-[83%] h-full">
-        <div className="w-[800px] flex justify-center items-center h-full">
+      <div className="py-[40px] px-[90px] flex justify-center relative basis-[83%]">
+        <div className="w-[800px]  justify-center items-center h-full">
           {!messages.length ? (
             <div className="text-center">
               <h1 className={`${ibmPlexMono.className} text-[50px] uppercase`}>Talk With Orb</h1>
               <p className="text-[#AFAFAF]">Orb turns your codebase into something you can actually talk to. Ask anything and get real answers traced directly from your graph and source code.</p>
             </div>
           ) : (
-            <div>
-              <div className="flex justify-end">
-                  <div className="navBtn py-3 px-5 rounded-[10px]">
-                      <p>Hi, What can you do? Long Explanation</p>
-                  </div>
-              </div>
-              <div className="my-10">
-                {renderFormattedOutput(output)}
-              </div>
+            <div className="w-full">
+              {messages && messages.length > 0 && messages.map((msg) => {
+                return (
+                <div key={msg.id} className="my-6 w-full">
+                  {msg.role === "user" ? (
+                    <div className="flex justify-end">
+                      <div className="navBtn py-3 px-5 rounded-[10px]">
+                        <p>{msg.content}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="my-4">
+                      {renderFormattedOutput(msg.content)}
+                    </div>
+                  )}
+                </div>
+              )})}
             </div>
           )}
-        <div className="absolute bottom-[50px] left-0 right-0 flex justify-center">
+        <div className="sticky z-10 mt-auto bottom-[50px] left-0 right-0 flex justify-center"> 
           <div className="flex w-[820px] flex-col items-center gap-4">
             <div className="bg-[#fff] border-[#c3c3c3] border-1 w-full h-[90px] mx-auto rounded-[10px] flex justify-between items-center px-8">
             <div className="w-[80%]">
