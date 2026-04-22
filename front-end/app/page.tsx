@@ -333,7 +333,7 @@ export default function Home() {
               )})}
             </div>
           )}
-        <div className="sticky z-10 mt-auto bottom-[50px] left-0 right-0 flex justify-center"> 
+        <div className="sticky z-10 mt-auto bottom-[0px] left-0 right-0 justify-center"> 
           <div className="flex w-[820px] flex-col items-center gap-4">
             <div className="bg-[#fff] border-[#c3c3c3] border-1 w-full h-[90px] mx-auto rounded-[10px] flex justify-between items-center px-8">
             <div className="w-[80%]">
@@ -351,6 +351,9 @@ export default function Home() {
               </button>
             </div>
           </div>
+        </div>
+        <div className="bg-[#ededed] bottom-[0px] h-[30px] w-full px-[10px]"  >
+          
         </div>
       </div>
     </div>      
