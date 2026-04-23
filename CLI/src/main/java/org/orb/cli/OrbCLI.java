@@ -1,15 +1,17 @@
 package org.orb.cli;
 
-import org.orb.cli.commands.AddCommand;
-import org.orb.cli.commands.IndexCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+
+import org.orb.cli.commands.AddCommand;
+import org.orb.cli.commands.IndexCommand;
+import org.orb.cli.commands.ServeCommand;
 
 @Command(
         name = "orb",
         description = "ORB Cli - Code Intelligence Platform",
         mixinStandardHelpOptions = true,
-        subcommands = {AddCommand.class, IndexCommand.class}
+        subcommands = {AddCommand.class, IndexCommand.class, ServeCommand.class}
 )
 public class OrbCLI {
     public static void main(String[] args) {
