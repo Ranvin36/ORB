@@ -15,89 +15,6 @@ const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500", "700"],
 });
 
-const initialMessages = [
-  {
-    id: "seed-1",
-    role: "user",
-    content: "Show me the main entry points in this app.",
-  },
-  {
-    id: "seed-2",
-    role: "assistant",
-    content: "Here are a few likely spots:\n\n**app/page.tsx** for the chat UI\n**app/layout.tsx** for the root shell\n**app/components/NavFolder.tsx** for sidebar links",
-  },
-  {
-    id: "seed-3",
-    role: "user",
-    content: "What should I inspect next?",
-  },
-  {
-    id: "seed-4",
-    role: "assistant",
-    content: "Try the API constants, then trace the fetch path into the backend stream handler.",
-  },
-  {
-    id: "seed-5",
-    role: "user",
-    content: "Add more sample output so I can test scrolling.",
-  },
-  {
-    id: "seed-6",
-    role: "assistant",
-    content: "Sure. Keep sending prompts and watch the transcript grow beyond the viewport.",
-  },
-  {
-    id: "seed-7",
-    role: "user",
-    content: "Does the formatter handle bold text?",
-  },
-  {
-    id: "seed-8",
-    role: "assistant",
-    content: "Yes, it renders **bold spans** and preserves line breaks for streamed content.",
-  },
-  {
-    id: "seed-9",
-    role: "user",
-    content: "Can you point out where the streaming parser lives?",
-  },
-  {
-    id: "seed-10",
-    role: "assistant",
-    content: "It is handled in the page component itself, alongside the fetch loop that reads the response body chunk by chunk.",
-  },
-  {
-    id: "seed-11",
-    role: "user",
-    content: "What about the navigation layout?",
-  },
-  {
-    id: "seed-12",
-    role: "assistant",
-    content: "The sidebar is rendered on the left and keeps the app shell fixed while the chat area grows vertically.",
-  },
-  {
-    id: "seed-13",
-    role: "user",
-    content: "Give me one more long assistant message for overflow testing.",
-  },
-  {
-    id: "seed-14",
-    role: "assistant",
-    content: "Here is a longer response intended to push the viewport: inspect the message list, keep sending prompts, and verify that the latest assistant reply remains reachable after the transcript grows beyond the visible panel.",
-  },
-  {
-    id: "seed-15",
-    role: "user",
-    content: "Does the input stay visible when there are many messages?",
-  },
-  {
-    id: "seed-16",
-    role: "assistant",
-    content: "That is the behavior to check now: the fixed composer should remain anchored while the transcript becomes scrollable.",
-  },
-];
-
 function renderFormattedOutput(text: string) {
   return text.split("\n").map((line, lineIndex) => {
     if (line.length === 0) {
@@ -178,7 +95,7 @@ export default function Home() {
   const [textInput, setTextInput] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
-  const [messages, setMessages] = useState<{ id: string; role: string; content: string }[]>(initialMessages);
+  const [messages, setMessages] = useState<{ id: string; role: string; content: string }[]>([]);
 
   const handleAsk = async () => {
     const prompt = textInput.trim();
@@ -309,7 +226,7 @@ export default function Home() {
       <div className="py-[40px] px-[90px] flex justify-center relative basis-[83%]">
         <div className="w-[800px]  justify-center items-center h-full">
           {!messages.length ? (
-            <div className="text-center">
+            <div className="text-center h-full flex flex-col justify-center items-center">
               <h1 className={`${ibmPlexMono.className} text-[50px] uppercase`}>Talk With Orb</h1>
               <p className="text-[#AFAFAF]">Orb turns your codebase into something you can actually talk to. Ask anything and get real answers traced directly from your graph and source code.</p>
             </div>
