@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
@@ -17,6 +19,13 @@ from neo4j_client import (
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 load_dotenv()
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -28,6 +37,7 @@ class Neo4jQueryRequest(BaseModel):
 
 class LlmQueryRequest(BaseModel):
     message: str
+    stream: bool = False
 
 class CodeFetcher:
     @staticmethod
@@ -91,7 +101,8 @@ def _extract_code_location(row: dict[str, Any]) -> tuple[Any, Any, Any]:
 
     return path, start_line, end_line
 
-def talk_to_gpt_with_neo4j_tool(message: str) -> str:
+
+def _resolve_neo4j_tool_messages(message: str) -> tuple[list[dict[str, Any]], str]:
     schema_context = """
     ### Node Labels and Properties:
     (:Class {name: string, type: string, parentClass: string, filePath: string})
@@ -109,14 +120,14 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
 
     ### CRITICAL QUERYING INSTRUCTIONS:
     1. **Case-Insensitive Matching**: Always use `toLower()` for string comparisons (e.g., `WHERE toLower(m.id) = toLower($methodId)`).
-    2. **Composite Names (e.g., 'Main.main')**: 
+    2. **Composite Names (e.g., 'Main.main')**:
        - The `id` property for a Method node is typically in the format "ClassName.methodName".
        - To find a method like 'Main.main', you should query directly on the `id` property.
     - Example: `MATCH (m:Method) WHERE toLower(m.id) = toLower('Main.main') RETURN m.filePath AS filePath, m.startLine AS startLine, m.endLine AS endLine`
        - If you need to find methods within a specific class, you can combine `className` and a partial match on `id` or use `className` directly.
          - Example: `MATCH (m:Method) WHERE toLower(m.className) = toLower('Main') AND toLower(m.id) CONTAINS toLower('.main') RETURN m.filePath AS filePath, m.startLine AS startLine, m.endLine AS endLine`
      3. **Code Retrieval**: When explaining code, ALWAYS return aliased fields exactly as filePath, startLine, endLine.
-    
+
     """
     tools = [
         {
@@ -152,7 +163,7 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
     messages = [
         {
             "role": "system",
-            "content": f"You are a code intelligence assistant. Use the following graph schema to answer user queries:\n{schema_context}\n\nWorkflow: " + 
+            "content": f"You are a code intelligence assistant. Use the following graph schema to answer user queries:\n{schema_context}\n\nWorkflow: " +
             "1. Query Neo4j for structural context. "
             "2. The system will automatically fetch code snippets if you return 'filePath', 'startLine', and 'endLine' with exact aliases (e.g., m.filePath AS filePath)."
             "3. Explain the code using both graph and source context.",
@@ -172,6 +183,9 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
         assistant_message = response.choices[0].message
         tool_calls = assistant_message.tool_calls or []
 
+        if not tool_calls:
+            return messages, assistant_message.content or ""
+
         messages.append(
             {
                 "role": "assistant",
@@ -189,9 +203,6 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
                 ],
             }
         )
-
-        if not tool_calls:
-            return assistant_message.content or ""
 
         for call in tool_calls:
             if call.function.name != "query_neo4j":
@@ -222,9 +233,9 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
                     enriched_rows.append(row)
                 if not enriched_rows:
                     tool_result = {
-                        "count": 0, 
-                        "rows": [], 
-                        "hint": "No results found. Try a case-insensitive search with toLower() or use CONTAINS for partial matches."
+                        "count": 0,
+                        "rows": [],
+                        "hint": "No results found. Try a case-insensitive search with toLower() or use CONTAINS for partial matches.",
                     }
                 else:
                     tool_result = {"count": len(enriched_rows), "rows": enriched_rows}
@@ -242,7 +253,34 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
                 }
             )
 
-    return "I could not produce a reliable answer after multiple query attempts."
+    return messages, "I could not produce a reliable answer after multiple query attempts."
+
+
+def stream_talk_to_gpt_with_neo4j_tool(message: str):
+    messages, answer = _resolve_neo4j_tool_messages(message)
+
+    if answer == "I could not produce a reliable answer after multiple query attempts.":
+        yield f"data: {answer}\n\n"
+        return
+
+    stream = openai_client.chat.completions.create(
+        model="gpt-4.1-nano",
+        messages=messages,
+        stream=True,
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta
+        content = getattr(delta, "content", None)
+        if content:
+            # SSE framing ensures clients can process each chunk incrementally.
+            yield f"data: {content}\n\n"
+
+    yield "data: [DONE]\n\n"
+
+def talk_to_gpt_with_neo4j_tool(message: str) -> str:
+    _, answer = _resolve_neo4j_tool_messages(message)
+    return answer
 
 
 @app.on_event("startup")
@@ -286,9 +324,20 @@ async def neo4j_query(payload: Neo4jQueryRequest):
         raise HTTPException(status_code=500, detail=f"Query failed: {exc}") from exc
 
 
-@app.post("/llm/query")
+@app.post("/llm/stream")
 async def llm_query(payload: LlmQueryRequest):
     try:
+        if payload.stream:
+            return StreamingResponse(
+                stream_talk_to_gpt_with_neo4j_tool(payload.message),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
         answer = talk_to_gpt_with_neo4j_tool(payload.message)
         return {"answer": answer}
     except RuntimeError as exc:

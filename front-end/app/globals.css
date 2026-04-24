@@ -24,3 +24,7 @@ body {
   color: var(--background);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.navBtn{
+  background-color: #bfbfbf4b; 
+}
