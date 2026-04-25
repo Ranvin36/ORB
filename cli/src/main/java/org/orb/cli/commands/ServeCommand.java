@@ -21,6 +21,7 @@ public class ServeCommand implements Runnable
 	@Override
 	public void run() {
         try {
+            // Check if the user's os is windows
             boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
             Path cliRoot = findCliRoot();
             Path workspaceRoot = cliRoot.getParent();
@@ -28,34 +29,38 @@ public class ServeCommand implements Runnable
             if (workspaceRoot == null) {
                 throw new IOException("Cannot determine workspace root from: " + cliRoot);
             }
-
+            //  Get inside client & server directories
             Path serverDir = workspaceRoot.resolve("api-server").toAbsolutePath().normalize();
             Path frontEndDir = workspaceRoot.resolve("front-end").toAbsolutePath().normalize();
             Path gradleWrapper = serverDir.resolve(isWindows ? "gradlew.bat" : "gradlew");
 
+            //  Check if folder paths are valid/exists
             validateRequiredPath(serverDir, "Missing api-server directory");
             validateRequiredPath(frontEndDir, "Missing front-end directory");
             validateRequiredPath(gradleWrapper, "Missing Gradle wrapper for api-server");
-                  System.out.println(serverDir);
-                  System.out.println(frontEndDir);
+
+            //  Create process builder for the backend
             ProcessBuilder serverProcessBuilder = new ProcessBuilder("cmd", "/c",gradleWrapper.toString(), "bootRun")
                 .directory(serverDir.toFile())
                 .redirectErrorStream(true);
             Process serverProcess = serverProcessBuilder.start();
             streamLogs(serverProcess, "[SERVER]");
+            //  Create process builder for the front-end
             ProcessBuilder frontEndProcessBuilder = new ProcessBuilder("cmd", "/c","npm", "run", "dev")
                 .directory(frontEndDir.toFile())
                 .redirectErrorStream(true);
             Process frontEndProcess = frontEndProcessBuilder.start();
             streamLogs(frontEndProcess, "[FRONT-END]");
 
+            //  Check if port is occupied by frontend and open in browser
             URI frontEndUri = URI.create("http://localhost:3000");
             waitForFrontendReady(frontEndProcess, frontEndUri, Duration.ofMinutes(2));
             openBrowser(frontEndUri);
 
+            // Kill the processes after stopping the running threads
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("\n[ORB] Shutting down...");
-
+                //  Kill the entire tree including the sub descendants created by the main process.
                 killTree(serverProcess);
                 killTree(frontEndProcess);
             }));
@@ -149,9 +154,11 @@ public class ServeCommand implements Runnable
     }
 
     private void killTree(Process process) {
+        //  Convert process object to ProcessHandler which gives more metadata
         ProcessHandle handle = process.toHandle();
-
+        //  Iterates through each sub processes and stops them from executing before killing the main process to avoid orphan processes
         handle.descendants().forEach(ProcessHandle::destroyForcibly);
+        // Stops/Kills the main process
         handle.destroyForcibly();
     }
 

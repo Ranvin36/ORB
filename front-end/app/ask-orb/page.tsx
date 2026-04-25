@@ -7,8 +7,8 @@ import { IoSettingsOutline  } from "react-icons/io5";
 import { GrUploadOption } from "react-icons/gr";
 import { IBM_Plex_Mono } from "next/font/google";
 
-import NavFolder from "./components/NavFolder";
-import { LLM_STREAM_URL } from "./constants/api";
+import NavFolder from "../components/NavFolder";
+import { LLM_STREAM_URL } from "../constants/api";
 
 const ibmPlexMono = IBM_Plex_Mono({
   subsets: ["latin"],
@@ -91,9 +91,10 @@ function extractStreamText(data: string) {
   return "";
 }
 
-export default function Home() {
+export default function AskOrb() {
   const [textInput, setTextInput] = useState("");
   const [isAsking, setIsAsking] = useState(false);
+
   const [messages, setMessages] = useState<{ id: string; role: string; content: string }[]>([]);
 
   const handleAsk = async () => {
@@ -201,7 +202,7 @@ export default function Home() {
             </div>
             <div className="nav-links mt-[40px]">
               <NavFolder href="/code" label="Home" Icon={FiHome} />
-              <NavFolder href="/code" label="Ask Orb" Icon={PiBrainLight} />
+              <NavFolder href="/ask-orb" label="Ask Orb" Icon={PiBrainLight} />
             </div>
           </div>
           <div className="w-full h-[1px] bg-[#fff] mt-[20px] mb-[20px]"></div>
@@ -235,14 +236,22 @@ export default function Home() {
                 return (
                 <div key={msg.id} className="my-6 w-full">
                   {msg.role === "user" ? (
-                    <div className="flex justify-end">
-                      <div className="navBtn py-3 px-5 rounded-[10px]">
-                        <p>{msg.content}</p>
-                      </div>
+                    <div>
+                        <div className="flex justify-end">
+                            <div className="navBtn py-3 px-5 rounded-[10px]">
+                                <p>{msg.content}</p>
+                            </div>
+                        </div>
                     </div>
                   ) : (
                     <div className="my-4">
-                      {renderFormattedOutput(msg.content)}
+                      {msg.content === "" && isAsking ? (
+                        <div>
+                          <p>Thinking...</p>
+                        </div>
+                      ) : (
+                        renderFormattedOutput(msg.content)
+                      )}
                     </div>
                   )}
                 </div>
