@@ -113,10 +113,12 @@ export default function AskOrb() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ 
+          user_id: "user-123",
           message: prompt,
           stream: true
         }),
       });
+
 
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
@@ -128,6 +130,7 @@ export default function AskOrb() {
       const decoder = new TextDecoder();
 
       const userMsg = {
+
         id: crypto.randomUUID(),
         role: "user",
         content: prompt,
@@ -195,7 +198,7 @@ export default function AskOrb() {
 
   return (
     <div className="app-container flex w-full">
-        <div className="sticky top-0 h-screen side-nav basis-[17%] p-[40px] bg-[#2F4BD8] [&_*]:text-white">
+      <div className="fixed left-0 top-0 h-screen w-[17%] side-nav p-[40px] bg-[#2F4BD8] [&_*]:text-white">
           <div className="navbar-starter">
             <div className="logo px-2"> 
                <h1 className="font-bold text-[20px]">ORB</h1>
@@ -223,8 +226,9 @@ export default function AskOrb() {
               </div>
           </div>
       </div>
-      <div className="py-[40px] px-[90px] flex justify-center relative basis-[83%]">
-        <div className="w-[800px]  justify-center items-center h-full">
+      <div className="ml-[17%] w-[83%] min-h-screen px-[90px] pt-[40px] pb-[20px] flex justify-center">
+        <div className="w-[800px] min-h-screen flex flex-col">
+          <div className="flex-1 pr-1">
           {!messages.length ? (
             <div className="text-center h-full flex flex-col justify-center items-center">
               <h1 className={`${ibmPlexMono.className} text-[50px] uppercase`}>Talk With Orb</h1>
@@ -258,7 +262,8 @@ export default function AskOrb() {
               )})}
             </div>
           )}
-        <div className="sticky z-10 mt-auto bottom-[0px] left-0 right-0 justify-center"> 
+          </div>
+        <div className="sticky bottom-0 z-10"> 
           <div className="flex w-[820px] flex-col items-center gap-4">
             <div className="bg-[#fff] border-[#c3c3c3] border-1 w-full h-[90px] mx-auto rounded-[10px] flex justify-between items-center px-8">
             <div className="w-[80%]">

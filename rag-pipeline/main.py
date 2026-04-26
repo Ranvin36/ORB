@@ -38,8 +38,13 @@ class Neo4jQueryRequest(BaseModel):
 
 class LlmQueryRequest(BaseModel):
     user_id: str | None = None
+    userId: str | None = None
     message: str
     stream: bool = False
+
+    @property
+    def resolved_user_id(self) -> str | None:
+        return self.user_id or self.userId
 
 
 class MemoryStoreRequest(BaseModel):
@@ -286,7 +291,7 @@ def _build_message_with_memory(user_id: str, message: str) -> str:
 
     if not memories:
         return message
-
+    print(f"Retrieved {len(memories)} relevant memories for user {user_id}")
     memory_lines = "\n".join(f"- {m}" for m in memories)
     return (
         "Use the following user memory only when relevant and factual. "
@@ -415,10 +420,11 @@ async def neo4j_query(payload: Neo4jQueryRequest):
 @app.post("/llm/stream")
 async def llm_query(payload: LlmQueryRequest):
     try:
+        user_id = payload.resolved_user_id
         if payload.stream:
-            if payload.user_id:
+            if user_id:
                 return StreamingResponse(
-                    stream_talk_to_gpt_with_memory(payload.user_id, payload.message),
+                    stream_talk_to_gpt_with_memory(user_id, payload.message),
                     media_type="text/event-stream",
                     headers={
                         "Cache-Control": "no-cache",
@@ -437,8 +443,8 @@ async def llm_query(payload: LlmQueryRequest):
                 },
             )
 
-        if payload.user_id:
-            answer = talk_to_gpt_with_memory(payload.user_id, payload.message)
+        if user_id:
+            answer = talk_to_gpt_with_memory(user_id, payload.message)
         else:
             answer = talk_to_gpt_with_neo4j_tool(payload.message)
         return {"answer": answer}
