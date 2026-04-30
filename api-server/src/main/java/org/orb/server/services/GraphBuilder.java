@@ -212,7 +212,7 @@ public class GraphBuilder {
 
         Collections.reverse(methodNames);
 
-        String firstMethod = methodNames.getFirst();
+        String firstMethod = methodNames.get(0);
         String firstCall = null;
 //        Extract the type of the rootNode(the main object)
         String rootReceiverType = resolveReceiverType(rootObjectNode, sourceBytes, visibleTypes);

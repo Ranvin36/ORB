@@ -69,7 +69,7 @@ public class GraphInMemory {
             if (extendedClasses == null || extendedClasses.isEmpty()) {
                 classNode.setParentClass("");
             } else {
-                classNode.setParentClass(extendedClasses.getLast());
+                classNode.setParentClass(extendedClasses.get(extendedClasses.size() - 1));
             }
             return classNode;
         });

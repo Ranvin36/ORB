@@ -3,6 +3,8 @@ package org.orb.server.controllers;
 import org.orb.server.models.Repository;
 import org.orb.server.services.IndexEngineService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
@@ -24,5 +26,10 @@ public class IndexingController {
     public String startIndexing(@RequestBody Repository repository) throws IOException {
         Optional<Path>  repoPath = indexEngineService.startIndexing(repository.getName());
         return "Indexing process started for repository: " + repoPath;
+    }
+
+    @GetMapping("/connection")
+    public ResponseEntity<String> testConnection() {
+        return ResponseEntity.ok("api-server is healthy");
     }
 }
