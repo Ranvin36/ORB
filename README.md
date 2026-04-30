@@ -5,8 +5,6 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 
-## Overview
-
 **ORB** is an intelligent codebase navigation platform designed to dramatically accelerate onboarding and comprehension of complex, large-scale software systems. By providing interactive code search, component dependency visualization, and call graph analysis, ORB transforms how developers explore and understand unfamiliar codebases.
 
 ### The Problem
