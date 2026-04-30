@@ -1,0 +1,53 @@
+# +required The configuration file schema version
+schemaVersion: 1.2
+
+# +optional Incoming connection details for the component
+endpoints:
+  # +required Unique name for the endpoint.
+  # This name will be used when generating the managed API
+  - name: start-indexing
+    # +optional Display name for the endpoint.
+    displayName: Triggers the indexing process
+    # +required Service section has the user service endpoint details
+    service:
+      # +optional Context (base path) of the API that gets exposed via the endpoint.
+      basePath: /indexing
+      # +required Numeric port value that gets exposed via the endpoint
+      port: 8080
+    # +required Type of traffic that the endpoint is accepting.
+    # Allowed values: REST, GraphQL, WS, GRPC, TCP, UDP.
+    type: REST
+    # +optional Network level visibilities of the endpoint.
+    # Accepted values: Project|Organization|Public(Default).
+    networkVisibilities:
+      - Public
+      - Organization
+
+# +optional Defines runtime configurations
+configurations:
+  # +optional List of environment variables to be injected into the component.
+  env:
+    - name: SPRING_APPLICATION_NAME
+      valueFrom:
+        configForm:
+          displayName: Spring Application Name
+          required: true
+          type: string
+    - name: SPRING_NEO4J_URI
+      valueFrom:
+        configForm:
+          displayName: Neo4j URI
+          required: true
+          type: string
+    - name: SPRING_NEO4J_AUTHENTICATION_USERNAME
+      valueFrom:
+        configForm:
+          displayName: Neo4j Username
+          required: true
+          type: string
+    - name: SPRING_NEO4J_AUTHENTICATION_PASSWORD
+      valueFrom:
+        configForm:
+          displayName: Neo4j Password
+          required: true
+          type: secret
