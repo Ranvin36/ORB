@@ -1,9 +1,9 @@
 package org.orb.cli.models;
 
-public class IndexRequest {
+public class Repository {
     private String name;
 
-    public IndexRequest(String name) {
+    public Repository(String name) {
         this.name = name;
     }
 
