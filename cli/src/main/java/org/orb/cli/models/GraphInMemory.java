@@ -163,7 +163,7 @@ public class GraphInMemory {
         try ( HttpClient httpClient = HttpClient.newHttpClient()) {
             System.out.println("Sending graph JSON to server");
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(new URI("http://localhost:8080/graph/upload"))
+                    .uri(new URI("https://orb-server.onrender.com/graph/upload"))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofFile(graphPath.toPath()))
                     .build();
