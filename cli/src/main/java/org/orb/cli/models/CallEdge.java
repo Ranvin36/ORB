@@ -6,6 +6,7 @@ import lombok.Setter;
 /**
  * Represents a directed call edge from one method node to another.
  */
+
 public class CallEdge {
     @Getter
     @Setter

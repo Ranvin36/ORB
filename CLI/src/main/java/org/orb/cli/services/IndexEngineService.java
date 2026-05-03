@@ -25,8 +25,8 @@ public class IndexEngineService {
     /**
      * Creates a new indexing service with an empty in-memory graph.
      */
-    public IndexEngineService(Driver driver) {
-        this.graphInMemory = new GraphInMemory(driver);
+    public IndexEngineService() {
+        this.graphInMemory = new GraphInMemory();
         this.metadataScanner = new MetadataScanner();
     }
 
@@ -150,6 +150,7 @@ public class IndexEngineService {
             // Start indexing the repository
             parseRepository(repo.get());
             this.graphInMemory.writeToJson();
+            this.graphInMemory.sendGraphToServer();
             return repo;
         } else {
             System.out.println("Cannot start indexing; repository not found: " + repoName);

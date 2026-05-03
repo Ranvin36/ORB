@@ -29,3 +29,4 @@ public class ClassNode {
     @JsonProperty("implements")
     private List<String> implement = new ArrayList<>();
 }
+

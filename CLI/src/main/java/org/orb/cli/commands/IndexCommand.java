@@ -44,39 +44,8 @@ public class IndexCommand implements Callable<Integer> {
                 e.printStackTrace();
                 return 1;
             }
-
-            // Load Neo4j configuration from orb.properties
-            String neo4jUri;
-            String neo4jUsername;
-            String neo4jPassword;
-
-            try (InputStream in = IndexCommand.class.getClassLoader().getResourceAsStream("orb.properties")) {
-                if (in == null) {
-                    System.err.println("Error: orb.properties not found on classpath. Please provide orb.properties with Neo4j connection details.");
-                    return 1;
-                }
-                Properties props = new Properties();
-                props.load(in);
-                neo4jUri = props.getProperty("neo4j.uri");
-                neo4jUsername = props.getProperty("neo4j.authentication.username");
-                neo4jPassword = props.getProperty("neo4j.authentication.password");
-
-                if (neo4jUri == null || neo4jUri.isBlank() ||
-                    neo4jUsername == null || neo4jUsername.isBlank() ||
-                    neo4jPassword == null || neo4jPassword.isBlank()) {
-                    System.err.println("Error: Missing or empty Neo4j connection properties in orb.properties (neo4j.uri, neo4j.authentication.username, neo4j.authentication.password)");
-                    return 1;
-                }
-            } catch (IOException e) {
-                System.err.println("Error: Failed to read orb.properties: " + e.getMessage());
-                return 1;
-            }
-
-            Neo4jConfig neo4jConfig = new Neo4jConfig(neo4jUri, neo4jUsername, neo4jPassword);
-            Driver driver = null;
             try {
-                driver = neo4jConfig.neo4jDriver();
-                IndexEngineService indexEngineService = new IndexEngineService(driver);
+                IndexEngineService indexEngineService = new IndexEngineService();
                 Optional<Path> indexedRepo = indexEngineService.startIndexing(repoName);
                 if (indexedRepo.isPresent()) {
                     System.out.println("Indexing completed successfully for repository: " + repoName);
@@ -90,7 +59,7 @@ public class IndexCommand implements Callable<Integer> {
                 e.printStackTrace();
                 return 1; // Failure
             } finally {
-                neo4jConfig.closeDriver(driver);
+                System.out.println("Indexing completed for repository: " + repoName);
             }
         }
     }

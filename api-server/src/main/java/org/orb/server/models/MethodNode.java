@@ -7,7 +7,7 @@ import lombok.Setter;
  * Represents a method node in the extracted graph.
  */
 
-class MethodNode {
+public class MethodNode {
     @Getter
     @Setter
     private String id;

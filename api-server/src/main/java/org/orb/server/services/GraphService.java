@@ -1,147 +1,102 @@
-package org.orb.server.models;
+package org.orb.server.services;
 
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
+import org.orb.server.models.CallEdge;
+import org.orb.server.models.ClassNode;
+import org.orb.server.models.GraphPayload;
+import org.orb.server.models.MethodNode;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 
+@Service
+public class GraphService {
+    // Driver is injected from Neo4jConfig.java bean
+    @Autowired
+    private Driver driver;
 
-/**
- * Stores extracted classes and methods in memory and exports them to JSON.
- */
-public class GraphInMemory {
-    private final Driver driver;
-    private final Map<String, ClassNode> classes = new HashMap<>();
-    private final Map<String, MethodNode> methods = new HashMap<>();
-    private final List<CallEdge> callEdges = new ArrayList<>();
-    private final Set<String> callEdgeKeys = new HashSet<>();
+    private Map<String, ClassNode> classes = new HashMap<>();
+    private Map<String, MethodNode> methods = new HashMap<>();
+    private List<CallEdge> callEdges = new ArrayList<>();
 
-    public GraphInMemory(Driver driver) {
-        this.driver = driver;
+
+    /**
+     * Verifies that the Neo4j driver is connected and working.
+     * 
+     * @return true if connection is successful
+     * @throws RuntimeException if connection fails
+     */
+    public boolean verifyConnection() {
+        try {
+            if (driver == null) {
+                throw new RuntimeException("Neo4j Driver not initialized");
+            }
+            try (Session session = driver.session()) {
+                session.run("RETURN 1").consume();
+            }
+            System.out.println("✓ Neo4j connection verified");
+            return true;
+        } catch (Exception e) {
+            System.err.println("✗ Neo4j connection failed: " + e.getMessage());
+            throw new RuntimeException("Cannot connect to Neo4j: " + e.getMessage(), e);
+        }
     }
 
     /**
-     * Clears all class, method, and call edge nodes from the in-memory graph.
+     * Loads graph data from the provided GraphPayload and populates the in-memory graph.
+     *
+     * @param graphPayload the payload containing classes, methods, and call edges
      */
-    public void resetGraph() {
+    public void loadGraphFromPayload(GraphPayload graphPayload) {
+        if (graphPayload == null || graphPayload.getNodes() == null) {
+            throw new IllegalArgumentException("Invalid graph payload");
+        }
+
+        // Clear existing data
         classes.clear();
         methods.clear();
         callEdges.clear();
-        callEdgeKeys.clear();
-    }
 
-    /**
-     * Builds a unique method identifier.
-     *
-     * @param className  class that owns the method
-     * @param methodName method name
-     * @return class-qualified id in the form {@code Class.method}, or method name
-     *         when class is blank
-     */
-    private String buildMethodId(String className, String methodName) {
-        if (className == null || className.isBlank()) {
-            return methodName;
+        // Load classes
+        if (graphPayload.getNodes().getClasses() != null) {
+            classes.putAll(graphPayload.getNodes().getClasses());
         }
-        return className + "." + methodName;
+
+        // Load methods
+        if (graphPayload.getNodes().getMethods() != null) {
+            methods.putAll(graphPayload.getNodes().getMethods());
+        }
+
+        // Load edges
+        if (graphPayload.getEdges() != null) {
+            callEdges.addAll(graphPayload.getEdges());
+        }
+
+        System.out.println("Graph loaded: " + classes.size() + " classes, " + 
+                          methods.size() + " methods, " + callEdges.size() + " edges");
     }
 
-    /**
-     * Adds a class node when it does not already exist.
-     *
-     * @param className class name to index
-     */
-    public void addClassNode(String filePath, String className, String type, List<String> implementedInterfaces,
-            List<String> extendedClasses) {
-        classes.compute(className, (nodeName, existingNode) -> {
-            ClassNode classNode = existingNode == null ? new ClassNode() : existingNode;
-            classNode.setName(className);
-            classNode.setType(type);
-            classNode.setFilePath(filePath);
-            if (implementedInterfaces == null || implementedInterfaces.isEmpty()) {
-                classNode.setImplement(new ArrayList<>());
-            } else {
-                classNode.setImplement(new ArrayList<>(new LinkedHashSet<>(implementedInterfaces)));
-            }
-            if (extendedClasses == null || extendedClasses.isEmpty()) {
-                classNode.setParentClass("");
-            } else {
-                classNode.setParentClass(extendedClasses.get(extendedClasses.size() - 1));
-            }
-            return classNode;
-        });
-    }
+    public void saveGraphToNeo4J() {
+        if (driver == null) {
+            throw new RuntimeException("Neo4j Driver is not initialized. Check your configuration.");
+        }
 
-    /**
-     * Adds a method node and returns its resolved method id.
-     *
-     * @param methodName method name to index
-     * @param className  owning class name
-     * @return resolved method id used as map key
-     */
-    public String addMethodNode(int startLine, int endLine, String filePath, String methodName, String className) {
-        String methodId = buildMethodId(className, methodName);
-        methods.computeIfAbsent(methodId, name -> {
-            MethodNode methodNode = new MethodNode();
-            methodNode.setClassName(className);
-            methodNode.setFilePath(filePath);
-            methodNode.setStartLine(startLine);
-            methodNode.setEndLine(endLine);
-            methodNode.setId(methodId);
-            return methodNode;
-        });
-        return methodId;
-    }
+        System.out.println("=====================================");
+        System.out.println("Saving to Neo4j using Driver from Neo4jConfig");
+        System.out.println("Driver class: " + driver.getClass().getName());
+        System.out.println("=====================================");
 
-    /**
-     * Adds a directed method call edge from one method id to another.
-     *
-     * @param methodId   caller method id
-     * @param methodCall callee method id
-     */
-    public void addMethodCall(String methodId, String methodCall) {
-        if (methodId == null || methodId.isBlank() || methodCall == null || methodCall.isBlank()) {
+        if (classes.isEmpty() && methods.isEmpty() && callEdges.isEmpty()) {
+            System.out.println("Warning: No graph data to save (empty classes, methods, and edges)");
             return;
         }
 
-        methods.computeIfAbsent(methodId, name -> {
-            MethodNode methodNode = new MethodNode();
-            methodNode.setId(methodId);
-            return methodNode;
-        });
+        System.out.println("Starting graph save: " + classes.size() + " classes, " + 
+                          methods.size() + " methods, " + callEdges.size() + " edges");
 
-        String edgeKey = methodId + "->" + methodCall;
-        if (!callEdgeKeys.add(edgeKey)) {
-            return;
-        }
-
-        CallEdge callEdge = new CallEdge();
-        callEdge.setFrom(methodId);
-        callEdge.setTo(methodCall);
-        callEdges.add(callEdge);
-    }
-
-    /**
-     * Serializes the in-memory graph and writes it to {@code graph.json}.
-     */
-    public void writeToJson() throws IOException {
-        Map<String, Object> nodes = new LinkedHashMap<>();
-        nodes.put("classes", classes);
-        nodes.put("methods", methods);
-
-        Map<String, Object> combinedGraphInMemory = new LinkedHashMap<>();
-        combinedGraphInMemory.put("nodes", nodes);
-        combinedGraphInMemory.put("edges", callEdges);
-
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File("graph.json"), combinedGraphInMemory);
-    }
-
-
-    public void pushToNeo4J() {
         List<Map<String, Object>> classRows = new ArrayList<>();
         List<Map<String, Object>> inheritanceRows = new ArrayList<>();
         List<Map<String, Object>> implementationRows = new ArrayList<>();
@@ -291,6 +246,9 @@ public class GraphInMemory {
         }
         catch (Exception e) {
             System.err.println("Error pushing graph to Neo4J: " + e.getMessage());
+            System.err.println("Stack trace:");
+            e.printStackTrace();
+            throw new RuntimeException("Failed to save graph to Neo4j: " + e.getMessage(), e);
         }
     }
 }
