@@ -1,2 +1,3 @@
 api-server/graph.json
 api-server/src/main/resources/application.properties
+rag-pipeline/rag/memory/chroma_db/chroma.sqlite3
