@@ -1,10 +1,10 @@
 "use client";
 
-import { FiSearch } from "react-icons/fi";
-import { PiGitBranchLight, PiFoldersLight, PiGraphLight, PiTreeStructureLight, PiStackLight } from "react-icons/pi";
-import { IoMdRefresh } from "react-icons/io";
-import { IoSettingsOutline, IoLogOutOutline } from "react-icons/io5";
+import Image from "next/image";
+
+import { PiFoldersLight, PiGraphLight, PiTreeStructureLight, PiStackLight } from "react-icons/pi";
 import SideNav from "./components/layout/SideNav";
+import Header from "./components/layout/Header";
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) {
   return (
@@ -27,40 +27,7 @@ export default function Home() {
       <SideNav />
 
       <div className="flex-1 overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-10 bg-[#fff] py-[25px] px-[50px]">
-          <div className="flex items-center gap-4">
-            <h2 className="text-2xl font-semibold text-gray-800">Ballerina Lang</h2>
-            <div className="flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded-md text-xs text-gray-500">
-              <PiGitBranchLight className="text-sm" />
-              <span>1.2.0</span>
-            </div>
-          </div>
-
-          <div className="flex-1 max-w-2xl mx-10">
-            <div className="relative">
-              <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search for any components in your codebase..."
-                className="w-full bg-[#F0F0F0] border-none rounded-lg py-4 pl-12 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-              <IoMdRefresh className="text-lg" />
-              <span>Re-Index</span>
-            </button>
-            <button className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-              <IoSettingsOutline className="text-xl" />
-            </button>
-            <button className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-              <IoLogOutOutline className="text-xl" />
-            </button>
-          </div>
-        </div>
+        <Header />
 
         {/* Project Orbit Section */}
         <div className="mb-12 px-[50px]">
@@ -83,7 +50,7 @@ export default function Home() {
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="flex flex-col gap-3">
                 <div className="bg-white rounded-2xl p-6 aspect-[1.3/1] flex items-center justify-center overflow-hidden">
-                  <img src="/code_graph_preview.png" alt="Graph preview" className="w-full h-full object-contain" />
+                  <Image src="/code_graph_preview.png" alt="Graph preview" width={200} height={150} className="w-full h-full object-contain" />
                 </div>
                 <p className="font-semibold text-gray-800 text-sm">ResolutionEngine</p>
               </div>
