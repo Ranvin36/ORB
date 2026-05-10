@@ -4,13 +4,9 @@ import org.orb.server.models.GraphPayload;
 import org.orb.server.models.Repository;
 import org.orb.server.services.GraphService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -49,6 +45,7 @@ public class GraphController {
     @PostMapping("/upload")
     @ResponseBody
     public ResponseEntity<String> uploadGraph(@RequestBody GraphPayload graphPayload) {
+        System.out.println("uploadGraph");
         try {
             graphService.loadGraphFromPayload(graphPayload);
             graphService.saveGraphToNeo4J();
@@ -62,12 +59,19 @@ public class GraphController {
         }
     }
 
-    @RequestMapping("/save")
+    @PostMapping("/save")
     @ResponseBody
     public String saveGraph(@RequestBody Repository repository) throws IOException {
         graphService.saveGraphToNeo4J();
         return "Indexing process started for repository: ";
     }
+
+    @GetMapping("search")
+    public ResponseEntity<String> searchGraph(@RequestParam String query) {
+        graphService.searchFromGraph(query);
+        return ResponseEntity.ok("Graph successfully searched for query: " + query);
+    }
+
 
     @GetMapping("/connection")
     public ResponseEntity<String> testConnection() {

@@ -146,9 +146,6 @@ public class GraphInMemory {
         System.out.println("Saving to json");
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(outputFile, combinedGraphInMemory);
-        String jsonString = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(combinedGraphInMemory);
-        System.out.println(jsonString);
-
         System.out.println("Graph saved to: " + outputFile.getAbsolutePath());
     }
 
@@ -167,10 +164,13 @@ public class GraphInMemory {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofFile(graphPath.toPath()))
                     .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Response status: " + response.statusCode());
+            System.out.println("Response body: " + response.body());
 
         } catch (Exception e) {
-            System.err.println("Error: " + e.getMessage());
+            System.err.println("Error sending graph to server: " + e.getClass().getName() + ": " + e.getMessage());
+            e.printStackTrace(System.err);
         }
     }
 }
