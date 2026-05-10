@@ -250,5 +250,51 @@ public class GraphService {
             e.printStackTrace();
             throw new RuntimeException("Failed to save graph to Neo4j: " + e.getMessage(), e);
         }
+        finally {
+            System.out.println("Graph save process completed. Creating text index...");
+            createTextIndex();
+            System.out.println("Text Index Created For Nodes");
+        }
+    }
+
+    public void createTextIndex() {
+        try(Session session = driver.session()) {
+            String indexQuery = "CREATE FULLTEXT INDEX codeSearch IF NOT EXISTS FOR (m:Class|Method) ON EACH [m.id, m.className, m.name, m.filePath]";
+            session.run(indexQuery).consume();
+            System.out.println("Text index created successfully on Method nodes for id, className, and filePath.");
+        }
+        catch (Exception e) {
+            System.err.println("Error creating text index in neo4j: " + e.getMessage());
+        }
+    }
+
+    public void searchFromGraph(String searchComp) {
+        try (Session session = driver.session()) {
+            String fullTextQuery = """
+                CALL db.index.fulltext.queryNodes("codeSearch", $searchText)
+                YIELD node, score
+                RETURN\s
+                    coalesce(node.name, node.className, "Unknown") AS displayName,\s
+                    node.filePath AS path,\s
+                    labels(node)[0] AS type,
+                    score
+                ORDER BY score DESC
+               \s""";
+            var result = session.run(fullTextQuery, Map.of("searchText", "Address"));
+
+            while (result.hasNext()) {
+                var record = result.next();
+                System.out.printf("[%s] %s (Path: %s) - Score: %f%n",
+                        record.get("type").asString(),
+                        record.get("displayName").asString(),
+                        record.get("path").asString(),
+                        record.get("score").asDouble()
+                );
+            }
+        }
+        catch (Exception e) {
+            System.err.println("Error searching from neo4j graph " + e.getMessage());
+        }
+
     }
 }

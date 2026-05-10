@@ -1,13 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { PiBrainLight } from "react-icons/pi";
-import { FiHome, FiFolder } from "react-icons/fi";
-import { IoSettingsOutline  } from "react-icons/io5";
-import { GrUploadOption } from "react-icons/gr";
 import { IBM_Plex_Mono } from "next/font/google";
-
-import NavFolder from "../components/NavFolder";
+import { GrUploadOption } from "react-icons/gr";
+import SideNav from "../components/layout/SideNav";
 import { LLM_STREAM_URL } from "../constants/api";
 
 const ibmPlexMono = IBM_Plex_Mono({
@@ -195,34 +191,7 @@ export default function AskOrb() {
 
   return (
     <div className="app-container flex w-full">
-        <div className="sticky top-0 h-screen side-nav basis-[17%] p-[40px] bg-[#2F4BD8] [&_*]:text-white">
-          <div className="navbar-starter">
-            <div className="logo px-2"> 
-               <h1 className="font-bold text-[20px]">ORB</h1>
-            </div>
-            <div className="nav-links mt-[40px]">
-              <NavFolder href="/code" label="Home" Icon={FiHome} />
-              <NavFolder href="/ask-orb" label="Ask Orb" Icon={PiBrainLight} />
-            </div>
-          </div>
-          <div className="w-full h-[1px] bg-[#fff] mt-[20px] mb-[20px]"></div>
-          <div className="code-sections h-[550px]">
-              <NavFolder href="/code" label="benchmarks" Icon={FiFolder} />
-              <NavFolder href="/code" label="compiler" Icon={FiFolder} />
-              <NavFolder href="/code" label="cli" Icon={FiFolder} />
-              <NavFolder href="/code" label="language-server" Icon={FiFolder} />
-              <NavFolder href="/code" label="project-api" Icon={FiFolder} />
-              <NavFolder href="/code" label="distribution" Icon={FiFolder} />
-              <NavFolder href="/code" label="semtypes" Icon={FiFolder} />
-          </div>
-          <div className="w-full h-[1px] bg-[#fff] mt-[20px] mb-[20px]"></div>
-          <div className="settings">
-              <NavFolder href="/code" label="Settings" Icon={IoSettingsOutline} />
-              <div className="navBtn py-1 rounded-[10px]">
-                <NavFolder href="/logout" label="Log out" Icon={IoSettingsOutline} />
-              </div>
-          </div>
-      </div>
+        <SideNav />
       <div className="py-[40px] px-[90px] flex justify-center relative basis-[83%]">
         <div className="w-[800px]  justify-center items-center h-full">
           {!messages.length ? (
