@@ -11,7 +11,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 /**
@@ -158,19 +165,41 @@ public class GraphInMemory {
         }
 
         try ( HttpClient httpClient = HttpClient.newHttpClient()) {
-            System.out.println("Sending graph JSON to server");
+            String uploadUrl = resolveUploadUrl();
+            System.out.println("Sending graph JSON to server to: " + uploadUrl);
+
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(new URI("https://orb-server.onrender.com/graph/upload"))
+                    .uri(new URI(uploadUrl))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofFile(graphPath.toPath()))
                     .build();
+
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
             System.out.println("Response status: " + response.statusCode());
+            System.out.println("Response headers: " + response.headers().map());
             System.out.println("Response body: " + response.body());
 
         } catch (Exception e) {
             System.err.println("Error sending graph to server: " + e.getClass().getName() + ": " + e.getMessage());
             e.printStackTrace(System.err);
+        }
+    }
+
+    // Simplified: load `application.properties` from classpath and return the configured URL.
+    // No fallbacks or additional validation are performed — caller will receive null if not found.
+    private String resolveUploadUrl() {
+        try (InputStream is = GraphInMemory.class.getClassLoader().getResourceAsStream("application.properties")) {
+            if (is == null) {
+                return null;
+            }
+            Properties props = new Properties();
+            props.load(is);
+            String v = props.getProperty("upload.url");
+            if (v != null) return v;
+            return props.getProperty("upload_url");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }

@@ -6,10 +6,10 @@ import org.orb.server.models.CallEdge;
 import org.orb.server.models.ClassNode;
 import org.orb.server.models.GraphPayload;
 import org.orb.server.models.MethodNode;
+import org.orb.server.models.SearchResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Path;
 import java.util.*;
 
 @Service
@@ -268,33 +268,53 @@ public class GraphService {
         }
     }
 
-    public void searchFromGraph(String searchComp) {
+    public List<SearchResult> searchFromGraph(String searchComp) {
+        List<SearchResult> searchResults = new ArrayList<>();
         try (Session session = driver.session()) {
             String fullTextQuery = """
                 CALL db.index.fulltext.queryNodes("codeSearch", $searchText)
                 YIELD node, score
-                RETURN\s
-                    coalesce(node.name, node.className, "Unknown") AS displayName,\s
-                    node.filePath AS path,\s
-                    labels(node)[0] AS type,
+                RETURN
+                    coalesce(node.name, node.className, node.id, "Unknown") AS displayName,
+                    node.id AS methodId,
+                    node.filePath AS path,
+                    coalesce(labels(node)[0], "Unknown") AS type,
                     score
                 ORDER BY score DESC
-               \s""";
-            var result = session.run(fullTextQuery, Map.of("searchText", "Address"));
+            """;
+            var result = session.run(fullTextQuery, Map.of("searchText", searchComp));
 
             while (result.hasNext()) {
                 var record = result.next();
-                System.out.printf("[%s] %s (Path: %s) - Score: %f%n",
-                        record.get("type").asString(),
-                        record.get("displayName").asString(),
-                        record.get("path").asString(),
-                        record.get("score").asDouble()
-                );
+                SearchResult searchResult = new SearchResult();
+                searchResult.setType(safeString(record, "type", "Unknown"));
+                searchResult.setDisplayName(safeString(record, "displayName", "Unknown"));
+                searchResult.setMethodId(safeString(record, "methodId", ""));
+                searchResult.setPath(safeString(record, "path", ""));
+                searchResult.setScore(safeDouble(record, "score", 0.0));
+                searchResults.add(searchResult);
             }
         }
         catch (Exception e) {
             System.err.println("Error searching from neo4j graph " + e.getMessage());
+            throw new RuntimeException("Failed to search graph: " + e.getMessage(), e);
         }
+
+        return searchResults;
+    }
+
+    private String safeString(org.neo4j.driver.Record record, String field, String defaultValue) {
+        if (record == null || record.get(field) == null || record.get(field).isNull()) {
+            return defaultValue;
+        }
+        return record.get(field).asString(defaultValue);
+    }
+
+    private double safeDouble(org.neo4j.driver.Record record, String field, double defaultValue) {
+        if (record == null || record.get(field) == null || record.get(field).isNull()) {
+            return defaultValue;
+        }
+        return record.get(field).asDouble(defaultValue);
 
     }
 }
