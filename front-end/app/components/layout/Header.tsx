@@ -5,7 +5,7 @@ import { PiGitBranchLight } from "react-icons/pi";
 import { IoMdRefresh } from "react-icons/io";
 import { IoSettingsOutline, IoLogOutOutline } from "react-icons/io5";
 
-export default function Header() {
+export default function Header({setSearchTerm}: any) {
   return (
     <div className="flex items-center justify-between mb-10 bg-[#fff] py-[25px] px-[50px]">
       <div className="flex items-center gap-4">
@@ -23,6 +23,7 @@ export default function Header() {
             type="text"
             placeholder="Search for any components in your codebase..."
             className="w-full bg-[#F0F0F0] border-none rounded-lg py-4 pl-12 pr-4 text-sm outline-none"
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </div>

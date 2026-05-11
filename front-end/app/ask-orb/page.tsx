@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IBM_Plex_Mono } from "next/font/google";
 import { GrUploadOption } from "react-icons/gr";
 import SideNav from "../components/layout/SideNav";
