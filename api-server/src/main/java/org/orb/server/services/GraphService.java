@@ -295,6 +295,41 @@ public class GraphService {
         catch (Exception e) {
             System.err.println("Error searching from neo4j graph " + e.getMessage());
         }
+    }
+    public int getComponentCount () {
+        String query = "MATCH (n) RETURN count(n) AS componentCount";
+        try (Session session = driver.session()) {
+            var result = session.run(query);
+            if (!result.hasNext()) {
+                return 0;
+            }
+            int count = result.single().get("componentCount").asInt(0);
+            System.out.println("Component count: " + count);
+            return count;
+        }
+        catch (Exception e) {
+            System.err.println("Error counting components in neo4j graph " + e.getMessage());
+            throw new RuntimeException("Failed to count graph components: " + e.getMessage(), e);
+        }
 
     }
+
+    public int getRelationshipCount () {
+        String query = "MATCH ()-[r]->() RETURN count(r) AS numberOfRelationships";
+        try (Session session = driver.session()) {
+            var result = session.run(query);
+            if (!result.hasNext()) {
+                return 0;
+            }
+            int count = result.single().get("numberOfRelationships").asInt(0);
+            System.out.println("Component count: " + count);
+            return count;
+        }
+        catch (Exception e) {
+            System.err.println("Error counting components in neo4j graph " + e.getMessage());
+            throw new RuntimeException("Failed to count graph components: " + e.getMessage(), e);
+        }
+
+    }
+
 }
