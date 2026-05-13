@@ -166,6 +166,10 @@ public class GraphInMemory {
 
         try ( HttpClient httpClient = HttpClient.newHttpClient()) {
             String uploadUrl = resolveUploadUrl();
+            if (uploadUrl == null || uploadUrl.isBlank()) {
+                System.err.println("Error: Upload URL is not configured. Set 'upload.url' or 'upload_url' in application.properties");
+                return;
+            }
             System.out.println("Sending graph JSON to server to: " + uploadUrl);
 
             HttpRequest request = HttpRequest.newBuilder()
