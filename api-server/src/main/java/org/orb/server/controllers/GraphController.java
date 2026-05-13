@@ -72,6 +72,16 @@ public class GraphController {
         return ResponseEntity.ok(graphService.searchFromGraph(query));
     }
 
+    @GetMapping("/components-count")
+    public ResponseEntity<Integer> componentsCount() {
+        return ResponseEntity.ok(graphService.getComponentCount());
+    }
+
+    @GetMapping("/relationship-count")
+    public ResponseEntity<Integer> relationshipCount() {
+        return ResponseEntity.ok(graphService.getRelationshipCount());
+    }
+
 
     @GetMapping("/connection")
     public ResponseEntity<String> testConnection() {

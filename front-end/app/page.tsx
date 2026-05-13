@@ -2,11 +2,10 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-
 import { PiFoldersLight, PiGraphLight, PiTreeStructureLight, PiStackLight } from "react-icons/pi";
 import SideNav from "./components/layout/SideNav";
 import Header from "./components/layout/Header";
+import { useEffect, useState } from "react";
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) {
   return (
@@ -37,6 +36,34 @@ export default function Home() {
     router.push(`/search?query=${encodeURIComponent(query)}`);
   }
 
+  const [stats,setStats] = useState<any>({
+    totalProjects: "01",
+    components: "0",
+    relationships: "0",
+    graphs: "0",
+  });
+
+  useEffect(() => {
+    
+    async function fetchStats() {    
+        const [relationshipsReq, nodeReq] =  await Promise.all([
+          fetch('http://localhost:8080/graph/relationship-count'),
+          fetch('http://localhost:8080/graph/components-count')
+        ]);
+    
+        const [relationships, Nodes] = await Promise.all([
+          relationshipsReq.json(),
+          nodeReq.json()
+        ]);
+
+        setStats((prev:any) => ({...prev, relationships: relationships, components: Nodes}));
+
+    }
+
+    fetchStats();
+
+  },[])
+  
   return (
     <div className="app-container flex w-full bg-[#F5F5F5] min-h-screen">
       <SideNav />
@@ -50,11 +77,11 @@ export default function Home() {
           <p className="text-gray-400 text-sm font-light mb-5">Data dashboard UX patterns, and UI examples, plus ways to elevate.</p>
 
           <div className="grid grid-cols-5 gap-3">
-            <StatCard icon={<PiStackLight />} label="Total Projects" value="01" />
-            <StatCard icon={<PiFoldersLight />} label="Components" value="112" />
-            <StatCard icon={<PiTreeStructureLight />} label="Relationships" value="75" />
-            <StatCard icon={<PiGraphLight />} label="Graphs" value="30" />
-            <StatCard icon={<PiGraphLight />} label="Graphs" value="30" />
+            <StatCard icon={<PiStackLight />} label="Total Projects" value={stats.totalProjects} />
+            <StatCard icon={<PiFoldersLight />} label="Components" value={stats.components} />
+            <StatCard icon={<PiTreeStructureLight />} label="Relationships" value={stats.relationships} />
+            <StatCard icon={<PiGraphLight />} label="Graphs" value={stats.graphs} />
+            <StatCard icon={<PiGraphLight />} label="Graphs" value={stats.graphs} />
           </div>
         </div>
 
