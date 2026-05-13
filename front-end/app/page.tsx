@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-
+import { useRouter } from "next/navigation";
 import { PiFoldersLight, PiGraphLight, PiTreeStructureLight, PiStackLight } from "react-icons/pi";
 import SideNav from "./components/layout/SideNav";
 import Header from "./components/layout/Header";
@@ -23,6 +23,18 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string
 }
 
 export default function Home() {
+  const router = useRouter();
+  const [searchTerm, setSearchTerm] = useState("");
+
+  function handleSearchSubmit() {
+    const query = searchTerm.trim();
+
+    if (!query) {
+      return;
+    }
+
+    router.push(`/search?query=${encodeURIComponent(query)}`);
+  }
 
   const [stats,setStats] = useState<any>({
     totalProjects: "01",
@@ -52,13 +64,12 @@ export default function Home() {
 
   },[])
   
-
   return (
     <div className="app-container flex w-full bg-[#F5F5F5] min-h-screen">
       <SideNav />
 
       <div className="flex-1 overflow-y-auto">
-        <Header />
+        <Header searchTerm={searchTerm} onSearchChange={setSearchTerm} onSearchSubmit={handleSearchSubmit} />
 
         {/* Project Orbit Section */}
         <div className="mb-12 px-[50px]">

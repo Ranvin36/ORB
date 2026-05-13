@@ -2,6 +2,7 @@ package org.orb.server.controllers;
 
 import org.orb.server.models.GraphPayload;
 import org.orb.server.models.Repository;
+import org.orb.server.models.SearchResult;
 import org.orb.server.services.GraphService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.jpa.repository.Query;
@@ -66,10 +67,9 @@ public class GraphController {
         return "Indexing process started for repository: ";
     }
 
-    @GetMapping("search")
-    public ResponseEntity<String> searchGraph(@RequestParam String query) {
-        graphService.searchFromGraph(query);
-        return ResponseEntity.ok("Graph successfully searched for query: " + query);
+    @GetMapping("/search")
+    public ResponseEntity<java.util.List<SearchResult>> searchGraph(@RequestParam String query) {
+        return ResponseEntity.ok(graphService.searchFromGraph(query));
     }
 
     @GetMapping("/components-count")

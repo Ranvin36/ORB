@@ -5,7 +5,18 @@ import { PiGitBranchLight } from "react-icons/pi";
 import { IoMdRefresh } from "react-icons/io";
 import { IoSettingsOutline, IoLogOutOutline } from "react-icons/io5";
 
-export default function Header() {
+type HeaderProps = {
+  searchTerm?: string;
+  onSearchChange?: (value: string) => void;
+  onSearchSubmit?: () => void;
+};
+
+export default function Header({ searchTerm = "", onSearchChange, onSearchSubmit }: HeaderProps) {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSearchSubmit?.();
+  }
+
   return (
     <div className="flex items-center justify-between mb-10 bg-[#fff] py-[25px] px-[50px]">
       <div className="flex items-center gap-4">
@@ -16,16 +27,18 @@ export default function Header() {
         </div>
       </div>
 
-      <div className="flex-1 max-w-2xl mx-10">
+      <form className="flex-1 max-w-2xl mx-10" onSubmit={handleSubmit}>
         <div className="relative">
           <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             placeholder="Search for any components in your codebase..."
+            value={searchTerm}
             className="w-full bg-[#F0F0F0] border-none rounded-lg py-4 pl-12 pr-4 text-sm outline-none"
+            onChange={(e) => onSearchChange?.(e.target.value)}
           />
         </div>
-      </div>
+      </form>
 
       <div className="flex items-center gap-3">
         <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
