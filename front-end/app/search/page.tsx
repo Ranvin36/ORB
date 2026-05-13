@@ -17,15 +17,18 @@ export default function SearchPage() {
   }, [queryFromUrl]);
 
   async function getSearchResults() {
-    if (searchTerm.length > 1) {
-      try {
-        const searchData = await fetch(`http://localhost:8080/graph/search?query=${encodeURIComponent(searchTerm)}`);
-        const searchResults = await searchData.json();
-        console.log("Search results:", searchResults);
-        setSearchResults(searchResults);
-      } catch (error) {
-        console.error("Error fetching search results:", error);
-      }
+    if (searchTerm.length <= 1) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      const searchData = await fetch(`http://localhost:8080/graph/search?query=${encodeURIComponent(searchTerm)}`);
+      const searchResults = await searchData.json();
+      console.log("Search results:", searchResults);
+      setSearchResults(searchResults);
+    } catch (error) {
+      console.error("Error fetching search results:", error);
     }
   }
 
