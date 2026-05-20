@@ -37,6 +37,8 @@ class LlmQueryRequest(BaseModel):
     user_id: str | None = None
     message: str
     stream: bool = False
+    batch_size: int = 70
+    skip: int = 0
 
 
 class MemoryStoreRequest(BaseModel):
@@ -97,10 +99,6 @@ async def neo4j_ping():
         record = result.single()
     return {"message": record["message"] if record else "no response"}
 
-@app.get("/query")
-async def query_get():
-    return {"message": "Hello, World!"}
-
 
 @app.post("/neo4j/query")
 async def neo4j_query(payload: Neo4jQueryRequest):
@@ -149,3 +147,24 @@ async def llm_query(payload: LlmQueryRequest):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"LLM query failed: {exc}") from exc
+
+@app.get("/llm/summarize")
+async def llm_summarize():
+    try:
+        unsummarized_nodes = run_query(
+            """
+            MATCH (n)
+            WHERE n.summary IS NULL
+            RETURN n
+            ORDER BY id(n)
+            LIMIT 70
+            """,
+            read_only=True,
+        )
+        return {
+            "count": len(unsummarized_nodes),
+            "rows": unsummarized_nodes
+        }
+
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
