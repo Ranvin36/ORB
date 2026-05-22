@@ -1,3 +1,4 @@
+import logging
 import os
 from dotenv import load_dotenv
 from typing import Any
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from rag.graph import get_rag_service
+from rag.rabbitmq_consumer import create_default_consumer
 
 from neo4j_client import (
     close_neo4j_driver,
@@ -17,7 +19,15 @@ from neo4j_client import (
 )
 
 
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:%(name)s:%(message)s",
+    )
+
+
 app = FastAPI()
+logger = logging.getLogger("rag_pipeline")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -76,12 +86,38 @@ def talk_to_gpt_with_memory(user_id: str, message: str) -> str:
 
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Application startup: initializing Neo4j driver")
     init_neo4j_driver()
+    # start rabbitmq consumer if configured
+    global _rabbit_consumer
+    _rabbit_consumer = None
+    try:
+        logger.info("Application startup: creating RabbitMQ consumer")
+        consumer = await create_default_consumer()
+        if consumer:
+            _rabbit_consumer = consumer
+            logger.info("Application startup: starting RabbitMQ consumer")
+            await consumer.start()
+        else:
+            logger.info("Application startup: RabbitMQ consumer disabled")
+    except Exception:
+        # do not prevent app startup if consumer fails
+        logger.exception("Application startup: RabbitMQ consumer failed to start")
+        _rabbit_consumer = None
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    logger.info("Application shutdown: closing Neo4j driver")
     close_neo4j_driver()
+    # stop rabbitmq consumer if running
+    try:
+        if globals().get("_rabbit_consumer"):
+            logger.info("Application shutdown: stopping RabbitMQ consumer")
+            await globals().get("_rabbit_consumer").stop()
+    except Exception:
+        logger.exception("Application shutdown: RabbitMQ consumer stop failed")
+        pass
 
 
 @app.get("/neo4j/health")

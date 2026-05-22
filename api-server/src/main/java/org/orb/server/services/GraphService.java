@@ -7,6 +7,7 @@ import org.orb.server.models.ClassNode;
 import org.orb.server.models.GraphPayload;
 import org.orb.server.models.MethodNode;
 import org.orb.server.models.SearchResult;
+import org.orb.server.rabbitMQ.RabbitMQProducer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +18,9 @@ public class GraphService {
     // Driver is injected from Neo4jConfig.java bean
     @Autowired
     private Driver driver;
+
+    @Autowired
+    private RabbitMQProducer rabbitMQProducer;
 
     private Map<String, ClassNode> classes = new HashMap<>();
     private Map<String, MethodNode> methods = new HashMap<>();
@@ -118,6 +122,7 @@ public class GraphService {
                             "implements", classNode.getImplement() == null ? List.of() : classNode.getImplement()
                     )
             ));
+            rabbitMQProducer.sendNodeJob("class", className, classNode);
             existingNodeIds.add(className);
 
             if (!className.isBlank() && !parentClass.isBlank()) {
@@ -160,18 +165,20 @@ public class GraphService {
 
         List<Map<String, Object>> methodRows = new ArrayList<>();
         for (MethodNode methodNode : methods.values()) {
+            String methodId = methodNode.getId() == null ? "" : methodNode.getId();
             methodRows.add(Map.of(
-                    "id", methodNode.getId(),
+                    "id", methodId,
                     "classId", methodNode.getClassName() == null ? "" : methodNode.getClassName(),
                     "properties", Map.of(
                             "kind", "method",
-                            "id", methodNode.getId(),
+                            "id", methodId,
                             "className", methodNode.getClassName() == null ? "" : methodNode.getClassName(),
                             "filePath", methodNode.getFilePath() == null ? "" : methodNode.getFilePath(),
                             "startLine", methodNode.getStartLine(),
                             "endLine", methodNode.getEndLine()
                     )
             ));
+            rabbitMQProducer.sendNodeJob("method", methodId, methodNode);
         }
 
         List<Map<String, Object>> edges = new ArrayList<>();
@@ -301,6 +308,7 @@ public class GraphService {
         }
         return searchResults;
     }
+
     public int getComponentCount () {
         String query = "MATCH (n) RETURN count(n) AS componentCount";
         try (Session session = driver.session()) {
