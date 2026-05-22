@@ -306,7 +306,6 @@ public class GraphService {
             System.err.println("Error searching from neo4j graph " + e.getMessage());
             throw new RuntimeException("Failed to search graph: " + e.getMessage(), e);
         }
-
         return searchResults;
     }
 
@@ -325,7 +324,6 @@ public class GraphService {
             System.err.println("Error counting components in neo4j graph " + e.getMessage());
             throw new RuntimeException("Failed to count graph components: " + e.getMessage(), e);
         }
-
     }
 
     private String safeString(org.neo4j.driver.Record record, String field, String defaultValue) {
