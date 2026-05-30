@@ -7,7 +7,6 @@ import org.orb.server.models.ClassNode;
 import org.orb.server.models.GraphPayload;
 import org.orb.server.models.MethodNode;
 import org.orb.server.models.SearchResult;
-import org.orb.server.rabbitMQ.RabbitMQProducer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -18,9 +17,6 @@ public class GraphService {
     // Driver is injected from Neo4jConfig.java bean
     @Autowired
     private Driver driver;
-
-    @Autowired
-    private RabbitMQProducer rabbitMQProducer;
 
     private Map<String, ClassNode> classes = new HashMap<>();
     private Map<String, MethodNode> methods = new HashMap<>();
@@ -122,7 +118,6 @@ public class GraphService {
                             "implements", classNode.getImplement() == null ? List.of() : classNode.getImplement()
                     )
             ));
-            rabbitMQProducer.sendNodeJob("class", className, classNode);
             existingNodeIds.add(className);
 
             if (!className.isBlank() && !parentClass.isBlank()) {
@@ -165,20 +160,18 @@ public class GraphService {
 
         List<Map<String, Object>> methodRows = new ArrayList<>();
         for (MethodNode methodNode : methods.values()) {
-            String methodId = methodNode.getId() == null ? "" : methodNode.getId();
             methodRows.add(Map.of(
-                    "id", methodId,
+                    "id", methodNode.getId(),
                     "classId", methodNode.getClassName() == null ? "" : methodNode.getClassName(),
                     "properties", Map.of(
                             "kind", "method",
-                            "id", methodId,
+                            "id", methodNode.getId(),
                             "className", methodNode.getClassName() == null ? "" : methodNode.getClassName(),
                             "filePath", methodNode.getFilePath() == null ? "" : methodNode.getFilePath(),
                             "startLine", methodNode.getStartLine(),
                             "endLine", methodNode.getEndLine()
                     )
             ));
-            rabbitMQProducer.sendNodeJob("method", methodId, methodNode);
         }
 
         List<Map<String, Object>> edges = new ArrayList<>();
@@ -306,6 +299,7 @@ public class GraphService {
             System.err.println("Error searching from neo4j graph " + e.getMessage());
             throw new RuntimeException("Failed to search graph: " + e.getMessage(), e);
         }
+
         return searchResults;
     }
 
@@ -324,6 +318,46 @@ public class GraphService {
             System.err.println("Error counting components in neo4j graph " + e.getMessage());
             throw new RuntimeException("Failed to count graph components: " + e.getMessage(), e);
         }
+
+    }
+
+    public List<Map<String, Object>> executeQuery(String cypher, Map<String, Object> params) {
+        try (Session session = driver.session()) {
+            var result = session.run(cypher, params);
+            List<Map<String, Object>> rows = new ArrayList<>();
+            while (result.hasNext()) {
+                rows.add(result.next().asMap());
+            }
+            return rows;
+        } catch (Exception e) {
+            System.err.println("Error executing Cypher query: " + e.getMessage());
+            throw new RuntimeException("Query failed: " + e.getMessage(), e);
+        }
+    }
+
+    public Map<String, Object> healthCheck() {
+        Map<String, Object> status = new HashMap<>();
+        try {
+            verifyConnection();
+            status.put("status", "healthy");
+            status.put("database", "Neo4j");
+        } catch (Exception e) {
+            status.put("status", "unhealthy");
+            status.put("error", e.getMessage());
+        }
+        return status;
+    }
+
+    public Map<String, String> ping() {
+        try (Session session = driver.session()) {
+            var result = session.run("RETURN 'pong' AS message");
+            if (result.hasNext()) {
+                return Map.of("message", result.next().get("message").asString());
+            }
+        } catch (Exception e) {
+            return Map.of("message", "error: " + e.getMessage());
+        }
+        return Map.of("message", "no response");
     }
 
     private String safeString(org.neo4j.driver.Record record, String field, String defaultValue) {

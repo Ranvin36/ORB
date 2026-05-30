@@ -7,3 +7,5 @@ python-dotenv
 neo4j
 chromadb
 aio-pika
+httpx
+sentence-transformers

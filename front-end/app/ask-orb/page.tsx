@@ -50,43 +50,6 @@ function normalizeStreamText(value: string) {
     .replace(/\\t/g, "\t");
 }
 
-function extractStreamText(data: string) {
-  if (data.trim() === "[DONE]") {
-    return "";
-  }
-
-  if (data === "") {
-    return "\n";
-  }
-
-  try {
-    const parsed = JSON.parse(data) as {
-      content?: string;
-      text?: string;
-      delta?: string;
-      token?: string;
-      message?: string;
-      response?: string;
-    };
-
-    const candidate =
-      parsed.content ??
-      parsed.text ??
-      parsed.delta ??
-      parsed.token ??
-      parsed.message ??
-      parsed.response;
-
-    if (typeof candidate === "string") {
-      return normalizeStreamText(candidate);
-    }
-  } catch {
-    return normalizeStreamText(data);
-  }
-
-  return "";
-}
-
 export default function AskOrb() {
   const [textInput, setTextInput] = useState("");
   const [isAsking, setIsAsking] = useState(false);
@@ -96,7 +59,7 @@ export default function AskOrb() {
   const handleAsk = async () => {
     const prompt = textInput.trim();
 
-    if (!prompt) {
+    if (!prompt || isAsking) {
       return;
     }
 
@@ -108,7 +71,7 @@ export default function AskOrb() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: prompt,
           stream: true
         }),
@@ -140,6 +103,7 @@ export default function AskOrb() {
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setTextInput("");
 
+      let buffer = ""; // Buffer for incomplete chunks
 
       while (true) {
         const { done, value } = await reader.read();
@@ -148,31 +112,35 @@ export default function AskOrb() {
           break;
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        let lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-        lines.forEach((line) => {
+        for (const line of lines) {
           if (line.startsWith("data:")) {
-            const data = line.slice(5).replace(/^\s/, "");
-            const text = extractStreamText(data);
+            const data = line.slice(5);
+            const trimmedData = data.trim();
+            if (trimmedData === "[DONE]") return;
+
+            let text = data;
+            try {
+              const parsed = JSON.parse(data);
+              text = parsed.token || parsed.content || data;
+            } catch (e) {
+              // Use raw data (preserving spaces)
+            }
 
             if (text) {
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === assistantId
-                      ? { ...msg, content: msg.content + text }
-                      : msg
-                  )
-                );
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantId
+                    ? { ...msg, content: msg.content + text }
+                    : msg
+                )
+              );
             }
-          } else if (line.trim()) {
-            setMessages((prev) => 
-              prev.map((msg) => 
-                msg.id === assistantId ? 
-                  { ...msg, content: msg.content + normalizeStreamText(line) } 
-                  : msg));
           }
-        });
+        }
       }
     } catch (error) {
       console.error("Failed to ask Orb:", error);
@@ -191,29 +159,26 @@ export default function AskOrb() {
 
   return (
     <div className="app-container flex w-full">
-        <SideNav />
-      <div className="py-[40px] px-[90px] flex justify-center relative basis-[83%]">
-        <div className="w-[800px]  justify-center items-center h-full">
+      <SideNav />
+      <div className="py-[40px] px-[90px] flex flex-col items-center relative ml-[17%] w-[83%] min-h-screen">
+        <div className="w-full max-w-[800px] flex flex-col flex-1">
           {!messages.length ? (
-            <div className="text-center h-full flex flex-col justify-center items-center">
+            <div className="flex-1 flex flex-col justify-center items-center text-center">
               <h1 className={`${ibmPlexMono.className} text-[50px] uppercase`}>Talk With Orb</h1>
               <p className="text-[#AFAFAF]">Orb turns your codebase into something you can actually talk to. Ask anything and get real answers traced directly from your graph and source code.</p>
             </div>
           ) : (
-            <div className="w-full h-full">
-              {messages && messages.length > 0 && messages.map((msg) => {
-                return (
+            <div className="w-full flex-1 pb-32">
+              {messages && messages.length > 0 && messages.map((msg) => (
                 <div key={msg.id} className="my-6 w-full">
                   {msg.role === "user" ? (
-                    <div>
-                        <div className="flex justify-end">
-                            <div className="navBtn py-3 px-5 rounded-[10px]">
-                                <p>{msg.content}</p>
-                            </div>
-                        </div>
+                    <div className="flex justify-end">
+                      <div className="navBtn py-3 px-5 rounded-[10px]">
+                        <p>{msg.content}</p>
+                      </div>
                     </div>
                   ) : (
-                    <div className="my-4">
+                    <div className="my-4 whitespace-pre-wrap break-words overflow-x-hidden">
                       {msg.content === "" && isAsking ? (
                         <div>
                           <p>Thinking...</p>
@@ -224,39 +189,39 @@ export default function AskOrb() {
                     </div>
                   )}
                 </div>
-              )})}
+              ))}
             </div>
           )}
-        <div className="sticky z-10 mt-auto bottom-[0px] left-0 right-0 justify-center"> 
-          <div className="flex w-[820px] flex-col items-center gap-4">
-            <div className="bg-[#fff] border-[#c3c3c3] border-1 w-full h-[90px] mx-auto rounded-[10px] flex justify-between items-center px-8">
-            <div className="w-[80%]">
-              <input
-                type="text"
-                placeholder="Ask Orb anything about your codebase..."
-                value={textInput}
-                onChange={(event) => setTextInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    handleAsk();
-                  }
-                }}
-                className="w-[100%] h-[60%] rounded-[10px] py-2 text-[13px] focus:outline-none"
-              />
+          <div className="sticky bottom-8 z-10 w-full">
+            <div className="flex w-[820px] flex-col items-center gap-4">
+              <div className="bg-[#fff] border-[#c3c3c3] border-1 w-full h-[90px] mx-auto rounded-[10px] flex justify-between items-center px-8">
+                <div className="w-[80%]">
+                  <input
+                    type="text"
+                    placeholder="Ask Orb anything about your codebase..."
+                    value={textInput}
+                    onChange={(event) => setTextInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        handleAsk();
+                      }
+                    }}
+                    className="w-[100%] h-[60%] rounded-[10px] py-2 text-[13px] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <button type="button" onClick={handleAsk} aria-label="Send prompt" disabled={isAsking}>
+                    <GrUploadOption className="text-[24px] text-[#c2c2c2] cursor-pointer" />
+                  </button>
+                </div>
+              </div>
             </div>
-            <div>
-              <button type="button" onClick={handleAsk} aria-label="Send prompt" disabled={isAsking}>
-                <GrUploadOption className="text-[24px] text-[#c2c2c2] cursor-pointer" />
-              </button>
+            <div className="bg-[#ededed] bottom-[0px] h-[30px] w-full px-[10px]"  >
+
             </div>
           </div>
         </div>
-        <div className="bg-[#ededed] bottom-[0px] h-[30px] w-full px-[10px]"  >
-          
-        </div>
       </div>
-    </div>      
-  </div>
-</div>
+    </div>
   );
 }

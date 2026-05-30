@@ -7,7 +7,7 @@ import NavFolder from "../NavFolder";
 
 export default function SideNav() {
   return (
-    <div className="sticky top-0 h-screen side-nav basis-[17%] p-[40px] bg-[#2F4BD8] [&_*]:text-white">
+    <div className="fixed top-0 left-0 h-screen side-nav w-[17%] p-[40px] bg-[#2F4BD8] [&_*]:text-white z-50">
       <div className="navbar-starter">
         <div className="logo px-2">
           <h1 className="font-bold text-[20px]">ORB</h1>
