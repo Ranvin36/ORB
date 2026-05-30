@@ -62,9 +62,9 @@ class MemoryQueryRequest(BaseModel):
 
 def stream_talk_to_gpt_with_neo4j_tool(message: str):
     service = get_rag_service()
-    answer = service.invoke(message)
-    yield f"data: {answer}\n\n"
-    yield "data: [DONE]\n\n"
+    # stream directly from the service (already yields SSE-formatted chunks)
+    for chunk in service.stream(message):
+        yield chunk
 
 
 def talk_to_gpt_with_neo4j_tool(message: str) -> str:
@@ -74,9 +74,8 @@ def talk_to_gpt_with_neo4j_tool(message: str) -> str:
 
 def stream_talk_to_gpt_with_memory(user_id: str, message: str):
     service = get_rag_service()
-    answer = service.invoke_with_memory(user_id, message)
-    yield f"data: {answer}\n\n"
-    yield "data: [DONE]\n\n"
+    for chunk in service.stream_with_memory(user_id, message):
+        yield chunk
 
 
 def talk_to_gpt_with_memory(user_id: str, message: str) -> str:

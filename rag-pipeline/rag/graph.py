@@ -9,7 +9,8 @@ from typing import Any, Annotated, TypedDict
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+# from sentence_transformers import SentenceTransformer  # embeddings disabled/commented
+from rag.ollama_client import generate_from_messages, OLLAMA_MODEL
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -78,9 +79,6 @@ Workflow:
 3. Explain the code using both graph and source context."""
 
 
-def _google_api_key() -> str | None:
-    return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-
 
 def _get_row_value(row: dict[str, Any], *candidates: str) -> Any:
     for key in candidates:
@@ -147,19 +145,41 @@ def query_neo4j(cypher: str, params: dict[str, Any] | None = None) -> str:
         return json.dumps({"error": str(exc), "hint": "Fix the Cypher and try query_neo4j again."})
 
 
-def _chat_model() -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-        temperature=0,
-        google_api_key=_google_api_key(),
-    )
+def _chat_model():
+    """Return a minimal chat shim that exposes `invoke(messages)` and
+    `bind_tools()` to preserve the API expected by the rest of the code.
+
+    This shim delegates generation to the local Ollama HTTP API.
+    """
+
+    class OllamaShim:
+        def __init__(self, model: str | None = None, stream: bool = True):
+            self.model = model or OLLAMA_MODEL
+            self.stream = stream
+
+        def bind_tools(self, tools):
+            # No-op: simple shim does not implement tool-calling integration
+            return self
+
+        def invoke(self, messages):
+            # non-streaming invoke returns a single AIMessage
+            text = generate_from_messages(messages, model=self.model, timeout=30, stream=False)
+            return AIMessage(content=str(text))
+
+        def stream_invoke(self, messages):
+            # streaming invoke yields text chunks from the client
+            for chunk in generate_from_messages(messages, model=self.model, timeout=30, stream=True):
+                yield chunk
+
+    return OllamaShim()
 
 
-def _embedding_model() -> GoogleGenerativeAIEmbeddings:
-    return GoogleGenerativeAIEmbeddings(
-        model=os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004"),
-        google_api_key=_google_api_key(),
-    )
+def _embedding_model():
+    # Embeddings are disabled for now. Keep function for future re-enable.
+    # Original implementation (kept for reference):
+    # model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    # return SentenceTransformer(model_name)
+    return None
 
 
 def _should_continue(state: GraphState) -> str:
@@ -192,12 +212,21 @@ class RagGraphService:
         return {"messages": [response]}
 
     def _create_embedding(self, text: str) -> list[float]:
-        return list(self.embedding_model.embed_query(text))
+        # embeddings disabled for now — return an empty embedding placeholder
+        # Original implementation (kept for reference):
+        # try:
+        #     vec = self.embedding_model.encode(text)
+        #     return list(map(float, vec.tolist() if hasattr(vec, "tolist") else vec))
+        # except Exception:
+        #     return [float(abs(hash(text)) % 1000) / 1000.0]
+        return []
 
     def _build_message_with_memory(self, user_id: str, message: str) -> str:
         try:
-            query_embedding = self._create_embedding(message)
-            memories = get_memory(user_id, query_embedding)
+            # embeddings-based retrieval disabled — request memories without embeddings
+            # query_embedding = self._create_embedding(message)
+            # memories = get_memory(user_id, query_embedding)
+            memories = get_memory(user_id, None)
         except Exception:
             return message
 
@@ -214,7 +243,9 @@ class RagGraphService:
 
     def _store_memory_text(self, user_id: str, text: str) -> None:
         try:
-            embedding = self._create_embedding(text)
+            # embeddings disabled — pass empty embedding placeholder
+            # embedding = self._create_embedding(text)
+            embedding = []
             store_memory(user_id=user_id, text=text, embedding=embedding)
         except Exception:
             return
@@ -249,19 +280,34 @@ class RagGraphService:
         return self._run(user_id, message)
 
     def stream(self, message: str):
+        initial_messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=message)]
+        # If the underlying chat_model supports streaming, use it.
+        stream_fn = getattr(self.chat_model, "stream_invoke", None)
+        if callable(stream_fn):
+            for chunk in stream_fn(initial_messages):
+                yield f"data: {chunk}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        # fallback: non-streaming
         answer = self.invoke(message)
         yield f"data: {answer}\n\n"
         yield "data: [DONE]\n\n"
 
     def stream_with_memory(self, user_id: str, message: str):
+        memory_aware_message = self._build_message_with_memory(user_id, message) if user_id else message
+        initial_messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=memory_aware_message)]
+        stream_fn = getattr(self.chat_model, "stream_invoke", None)
+        if callable(stream_fn):
+            for chunk in stream_fn(initial_messages):
+                yield f"data: {chunk}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        # fallback: non-streaming
         answer = self.invoke_with_memory(user_id, message)
         yield f"data: {answer}\n\n"
         yield "data: [DONE]\n\n"
-
-
-@lru_cache(maxsize=1)
-def get_rag_service() -> RagGraphService:
-    return RagGraphService()
 
 
 @lru_cache(maxsize=1)
