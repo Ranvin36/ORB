@@ -20,32 +20,42 @@ public class LlmController {
     @PostMapping("/stream")
     public Object query(@RequestBody LlmQueryRequest payload) {
         if (payload.isStream()) {
-            SseEmitter emitter = new SseEmitter();
+            System.out.println("Received streaming request: " + payload.getMessage());
+            // Increase timeout to 3 minutes
+            SseEmitter emitter = new SseEmitter(180000L);
+            
             TokenStream tokenStream = ragService.askStreaming(payload.getMessage());
 
             tokenStream
                 .onNext(token -> {
                     try {
+                        System.out.println("Sending token: " + token);
                         emitter.send(SseEmitter.event().data(token));
                     } catch (IOException e) {
+                        System.err.println("Error sending token: " + e.getMessage());
                         emitter.completeWithError(e);
                     }
                 })
                 .onComplete(c -> {
                     try {
+                        System.out.println("Streaming complete");
                         emitter.send(SseEmitter.event().data("[DONE]"));
                         emitter.complete();
                     } catch (IOException e) {
+                        System.err.println("Error completing stream: " + e.getMessage());
                         emitter.completeWithError(e);
                     }
                 })
                 .onError(error -> {
+                    System.err.println("Streaming error: " + error.getMessage());
+                    error.printStackTrace();
                     emitter.completeWithError(error);
                 })
                 .start();
 
             return emitter;
         } else {
+            System.out.println("Received blocking request: " + payload.getMessage());
             String answer = ragService.ask(payload.getMessage());
             return Map.of("answer", answer);
         }
