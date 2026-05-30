@@ -12,6 +12,8 @@ import org.orb.server.utils.CodeUtility;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 import jakarta.annotation.PostConstruct;
 import java.util.*;
 
@@ -33,6 +35,7 @@ public class RagService {
 
     private Assistant assistant;
     private StreamingAssistant streamingAssistant;
+    private ContextRetriever contextRetriever;
 
     public interface Assistant {
         @SystemMessage("""
@@ -71,8 +74,24 @@ public class RagService {
 
     public interface StreamingAssistant {
         @SystemMessage("""
-            You are a code intelligence assistant. Use the following graph schema to answer user queries:
+            You are a code intelligence assistant.
+            Use the following context retrieved from a Neo4j graph and source code snippets to answer the user's query.
+            
+            Context:
+            {{context}}
+            
+            Instructions:
+            1. Explain the code and structural relationships clearly.
+            2. If the context is empty or insufficient, mention that you couldn't find specific details in the graph.
+            3. Do not try to call any tools.""")
+        @UserMessage("{{message}}")
+        TokenStream chat(@V("message") String message, @V("context") String context);
+}
 
+    public interface ContextRetriever {
+        @SystemMessage("""
+            You are a context retriever. Your goal is to query a Neo4j graph to find all relevant classes, methods, and code snippets needed to answer the user's query.
+            
             ### Node Labels and Properties:
             (:Class {name: string, type: string, parentClass: string, filePath: string})
             (:Method {id: string, className: string, kind: string, startLine: int, endLine: int, filePath: string})
@@ -83,25 +102,12 @@ public class RagService {
             (:Class)-[:IMPLEMENTS]->(:Class)
             (:Class)-[:HAS_METHOD]->(:Method)
 
-            ### Important:
-            When you need to explain code, ALWAYS alias your Cypher RETURN fields exactly as:
-            filePath, startLine, endLine
-
-            ### CRITICAL QUERYING INSTRUCTIONS:
-            1. **Case-Insensitive Matching**: Always use `toLower()` for string comparisons (e.g., `WHERE toLower(m.id) = toLower($methodId)`).
-            2. **Composite Names (e.g., 'Main.main')**:
-               - The `id` property for a Method node is typically in the format "ClassName.methodName".
-               - To find a method like 'Main.main', you should query directly on the `id` property.
-               - Example: `MATCH (m:Method) WHERE toLower(m.id) = toLower('Main.main') RETURN m.filePath AS filePath, m.startLine AS startLine, m.endLine AS endLine`
-               - If you need to find methods within a specific class, you can combine `className` and a partial match on `id` or use `className` directly.
-               - Example: `MATCH (m:Method) WHERE toLower(m.className) = toLower('Main') AND toLower(m.id) CONTAINS toLower('.main') RETURN m.filePath AS filePath, m.startLine AS startLine, m.endLine AS endLine`
-            3. **Code Retrieval**: When explaining code, ALWAYS return aliased fields exactly as filePath, startLine, endLine.
-
-            Workflow:
-            1. Query Neo4j for structural context.
-            2. The system will automatically fetch code snippets if you return 'filePath', 'startLine', and 'endLine' with exact aliases (e.g., m.filePath AS filePath).
-            3. Explain the code using both graph and source context.""")
-        TokenStream chat(String message);
+            ### Process:
+            1. Use the 'queryNeo4j' tool to fetch structural data.
+            2. Ensure you return fields aliased as 'filePath', 'startLine', and 'endLine' to get code snippets.
+            3. Return the collected information as a comprehensive summary for the next assistant.
+            """)
+        String getContext(String message);
     }
 
     @PostConstruct
@@ -116,8 +122,12 @@ public class RagService {
 
         this.streamingAssistant = AiServices.builder(StreamingAssistant.class)
                 .streamingChatLanguageModel(streamingChatLanguageModel)
-                .tools(graphTool)
                 .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+                .build();
+
+        this.contextRetriever = AiServices.builder(ContextRetriever.class)
+                .chatLanguageModel(chatLanguageModel)
+                .tools(graphTool)
                 .build();
     }
 
@@ -126,7 +136,10 @@ public class RagService {
     }
 
     public TokenStream askStreaming(String message) {
-        return streamingAssistant.chat(message);
+        System.out.println("Retrieving context for streaming...");
+        String context = contextRetriever.getContext(message);
+        System.out.println("Context retrieved, starting stream.");
+        return streamingAssistant.chat(message, context);
     }
 
     public static class GraphTool {
