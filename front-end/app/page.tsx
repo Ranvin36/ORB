@@ -68,7 +68,7 @@ export default function Home() {
     <div className="app-container flex w-full bg-[#F5F5F5] min-h-screen">
       <SideNav />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="ml-[17%] w-[83%] flex-1 overflow-y-auto">
         <Header searchTerm={searchTerm} onSearchChange={setSearchTerm} onSearchSubmit={handleSearchSubmit} />
 
         {/* Project Orbit Section */}
