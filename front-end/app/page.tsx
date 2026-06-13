@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { PiFoldersLight, PiGraphLight, PiTreeStructureLight, PiStackLight } from "react-icons/pi";
 import Header from "./components/layout/Header";
 import AppShell from "./components/layout/AppShell";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) {
   return (
@@ -24,12 +25,28 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string
 
 export default function Home() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
-  const [stats, setStats] = useState<any>({
-    totalProjects: "01",
-    components: "0",
-    relationships: "0",
-    graphs: "0",
+  const { data: stats = { totalProjects: "01", components: "0", relationships: "0", graphs: "0" } } = useQuery({
+    queryKey: ["home-stats"],
+    queryFn: async () => {
+      const [relationshipsReq, nodeReq] = await Promise.all([
+        fetch("http://localhost:8080/graph/relationship-count"),
+        fetch("http://localhost:8080/graph/components-count"),
+      ]);
+
+      const [relationships, components] = await Promise.all([
+        relationshipsReq.json(),
+        nodeReq.json(),
+      ]);
+
+      return {
+        totalProjects: "01",
+        components,
+        relationships,
+        graphs: "0",
+      };
+    },
   });
 
   function handleSearchSubmit() {
@@ -39,26 +56,16 @@ export default function Home() {
       return;
     }
 
+    queryClient.prefetchQuery({
+      queryKey: ["search-results", query],
+      queryFn: async () => {
+        const searchData = await fetch(`http://localhost:8080/graph/search?query=${encodeURIComponent(query)}`);
+        return searchData.json();
+      },
+    });
+
     router.push(`/search?query=${encodeURIComponent(query)}`);
   }
-
-  useEffect(() => {
-    async function fetchStats() {
-      const [relationshipsReq, nodeReq] = await Promise.all([
-        fetch("http://localhost:8080/graph/relationship-count"),
-        fetch("http://localhost:8080/graph/components-count"),
-      ]);
-
-      const [relationships, nodes] = await Promise.all([
-        relationshipsReq.json(),
-        nodeReq.json(),
-      ]);
-
-      setStats((prev: any) => ({ ...prev, relationships, components: nodes }));
-    }
-
-    fetchStats();
-  }, []);
 
   return (
     <AppShell>
